@@ -37,6 +37,9 @@ func (a *myAction) Metadata() ActionMetadata {
 		// Approval: "none" (immediate), "1-peer", "2-peers", "2-seniors"
 		Authorization: AuthorizationConfig{Approval: "none"},
 
+		// rc and/or mc ZOA endpoints where this TA is registered.
+		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
+
 		// Per-TA timeout (seconds). Runner Job is killed after this.
 		TimeoutSeconds: 300,
 

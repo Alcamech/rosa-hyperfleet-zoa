@@ -32,6 +32,7 @@ func (r *rolloutRestart) Metadata() ActionMetadata {
 		ExecutionMode:        "sync",
 		Description:          "Restart a workload by patching the pod template annotation, equivalent to kubectl rollout restart. Supports deployments, daemonsets, and statefulsets.",
 		Authorization:        AuthorizationConfig{Approval: "none"},
+		DeploymentTargets:    []string{DeploymentTargetRC, DeploymentTargetMC},
 		TimeoutSeconds:       180,
 		WriteCooldownSeconds: 300,
 		DryRunAction:         "get_resource",

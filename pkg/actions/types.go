@@ -21,19 +21,29 @@ type Action interface {
 // to keep TA definitions concise.
 type Params = map[string]string
 
+const (
+	DeploymentTargetRC = "rc"
+	DeploymentTargetMC = "mc"
+)
+
 type ActionMetadata struct {
-	Name                 string              `json:"name"`
-	Scope                string              `json:"scope"`
-	Type                 string              `json:"type"`
-	ExecutionMode        string              `json:"execution_mode"`
-	Description          string              `json:"description"`
-	Parameters           []ParameterDef      `json:"parameters"`
-	Authorization        AuthorizationConfig `json:"authorization"`
-	TimeoutSeconds       int                 `json:"timeout_seconds"`
-	WriteCooldownSeconds int                 `json:"write_cooldown_seconds"`
-	DryRunAction         string              `json:"dry_run_action,omitempty"`
-	DryRunExtraParams    Params              `json:"dry_run_extra_params,omitempty"`
-	RBAC                 *RBACConfig         `json:"rbac,omitempty"`
+	Name          string `json:"name"`
+	Scope         string `json:"scope"`
+	Type          string `json:"type"`
+	ExecutionMode string `json:"execution_mode"`
+	// DisallowExecutionModeOverride rejects API/CLI execution_mode overrides.
+	DisallowExecutionModeOverride bool                `json:"disallow_execution_mode_override,omitempty"`
+	Description                   string              `json:"description"`
+	Parameters                    []ParameterDef      `json:"parameters"`
+	Authorization                 AuthorizationConfig `json:"authorization"`
+	TimeoutSeconds                int                 `json:"timeout_seconds"`
+	WriteCooldownSeconds          int                 `json:"write_cooldown_seconds"`
+	DryRunAction                  string              `json:"dry_run_action,omitempty"`
+	DryRunExtraParams             Params              `json:"dry_run_extra_params,omitempty"`
+	RBAC                          *RBACConfig         `json:"rbac,omitempty"`
+	// DeploymentTargets lists rc and/or mc endpoints where this TA is registered.
+	// Omitted or empty means both. Not exposed on describe/list JSON.
+	DeploymentTargets []string `json:"-"`
 }
 
 type AuthorizationConfig struct {
@@ -61,14 +71,16 @@ type RBACRule struct {
 }
 
 type ExecutionParams struct {
-	Params        map[string]string
-	TargetCluster string
-	Force         bool
-	KubeClient    kubernetes.Interface
-	DynamicClient dynamic.Interface
-	RESTConfig    *rest.Config
-	AWSConfig     *aws.Config
-	Logger        *slog.Logger
+	Params           map[string]string
+	ExecutionID      string
+	TargetCluster    string
+	DeploymentTarget string
+	Force            bool
+	KubeClient       kubernetes.Interface
+	DynamicClient    dynamic.Interface
+	RESTConfig       *rest.Config
+	AWSConfig        *aws.Config
+	Logger           *slog.Logger
 }
 
 type ActionResult struct {

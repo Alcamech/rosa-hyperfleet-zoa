@@ -13,28 +13,28 @@ import (
 func TestGetSecret(t *testing.T) {
 	action := &getSecretAction{}
 
-	t.Run("When namespace has clusters- prefix it should reject", func(t *testing.T) {
+	t.Run("When namespace has cluster- prefix it should reject", func(t *testing.T) {
 		params := &ExecutionParams{
-			Params: map[string]string{"namespace": "clusters-abc123"},
+			Params: map[string]string{"namespace": "cluster-abc123"},
 			Logger: slog.Default(),
 		}
 		err := action.Validate(context.Background(), params)
 		if err == nil {
 			t.Fatal("expected error for HCP namespace")
 		}
-		if got := err.Error(); got != "access to secrets in namespace \"clusters-abc123\" is blocked: HCP namespace protection" {
+		if got := err.Error(); got != "access to secrets in namespace \"cluster-abc123\" is blocked: HCP namespace protection" {
 			t.Fatalf("unexpected error: %s", got)
 		}
 	})
 
-	t.Run("When namespace has ocm- prefix it should reject", func(t *testing.T) {
+	t.Run("When namespace has cluster- CP suffix it should reject", func(t *testing.T) {
 		params := &ExecutionParams{
-			Params: map[string]string{"namespace": "ocm-arohcpint-12345"},
+			Params: map[string]string{"namespace": "cluster-abc123-my-hc"},
 			Logger: slog.Default(),
 		}
 		err := action.Validate(context.Background(), params)
 		if err == nil {
-			t.Fatal("expected error for OCM namespace")
+			t.Fatal("expected error for HCP control plane namespace")
 		}
 	})
 

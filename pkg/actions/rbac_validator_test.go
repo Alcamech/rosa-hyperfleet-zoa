@@ -142,24 +142,17 @@ func TestAllRegisteredActions_RBACCompliance(t *testing.T) {
 	}
 }
 
-// TestAllRegisteredActions_TimeoutCompliance ensures no TA has a TimeoutSeconds
-// that exceeds the Lambda execution deadline ceiling. This is a compile-time gate:
-// if a developer registers a TA with a timeout that can't fit in a single Lambda
-// invocation, the build breaks with a clear error and a pointer to the tuning guide.
-//
-// The ceiling is derived from EXECUTION_DEADLINE_SECONDS env var (same source as
-// production code in pkg/config), falling back to 295s if unset.
-// This means:
-//   - In CI: set EXECUTION_DEADLINE_SECONDS to match your Terraform lambda_worker_timeout - 5
-//   - Locally: defaults to 295 (safe for the standard 300s Lambda)
-//   - If Terraform increases the Lambda to 900s, just set the env var to 895 in CI
-//
-// See docs/architecture/timeout-tuning.md for the full decision guide.
+// TestAllRegisteredActions_TimeoutCompliance ensures no sync TA has a TimeoutSeconds
+// that exceeds the Lambda execution deadline ceiling. Async TAs run in K8s Jobs and
+// may exceed the Lambda ceiling — see docs/architecture/timeout-tuning.md.
 func TestAllRegisteredActions_TimeoutCompliance(t *testing.T) {
 	ceiling := getTestEnvInt("EXECUTION_DEADLINE_SECONDS", 295)
 
 	for _, action := range List() {
 		meta := action.Metadata()
+		if meta.ExecutionMode == "async" {
+			continue
+		}
 		if meta.TimeoutSeconds > ceiling {
 			t.Errorf("TA %q has TimeoutSeconds=%d which exceeds execution deadline ceiling (%ds). "+
 				"Either reduce TA timeout, increase Lambda timeout in Terraform (lambda_worker_timeout), "+
