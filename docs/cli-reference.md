@@ -159,6 +159,36 @@ zoa audit --since 2026-08-01 --until 2026-08-15
 | `--wait` | | Poll until async execution completes (no effect on sync — sync returns inline) |
 | `--wait-timeout` | | Max poll duration when `--wait` is active (default 5m) |
 | `--wait-poll-interval` | | Poll frequency when `--wait` is active (default 30s) |
+| `--gather` | | `must_gather` scopes: `hcp`, `mc`, `rc` (comma-separated; must match the ZOA endpoint) |
+| `--cluster-id` | | Hosted cluster UUID (`must_gather` when `--gather` includes `hcp`) |
+
+### `must_gather`
+
+**Must-gather** is the standard troubleshooting bundle: Kubernetes logs, events, and resource manifests packaged as `output.tar.gz` for offline analysis (compatible with `omc`/`omg`-style layouts).
+
+| `--gather` | Collects |
+|------------|----------|
+| `hcp` | One hosted ROSA cluster: hypershift dump + HCP/control-plane namespace diagnostics (MC ZOA only; requires `--cluster-id`) |
+| `mc` | Management cluster platform: platform namespaces (e.g. kube-applier, hypershift), nodes, storage, Karpenter CRs |
+| `rc` | Regional cluster platform: platform namespaces (e.g. platform-api), HyperFleet CRs, nodes, storage, Karpenter CRs |
+
+Read-only. Produces `output.tar.gz` (`zoa download`). Mode is async (see MODE column); use `--wait` to block.
+
+```bash
+# MC platform
+zoa run must_gather --jira OSD-123 --gather mc --wait
+
+# RC platform
+zoa run must_gather --jira OSD-123 --gather rc --wait
+
+# Hosted cluster (MC ZOA only)
+zoa run must_gather --jira OSD-123 --gather hcp --cluster-id <uuid> --wait
+
+zoa describe must_gather   # full parameter reference
+zoa download <exec-id> -f /tmp/must-gather.tar.gz
+```
+
+Use `zoa describe must_gather` for parameters such as `extra_namespaces` and `skip_must_gather_image`. Other actions use shared flags above (`--namespace`, `--resource`, …) only.
 
 ## `runs` Filters
 
