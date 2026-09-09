@@ -271,6 +271,7 @@ func TestHandleListExecutions_WhenFiltersProvided_ItShouldPassFilterToStore(t *t
 	f := execStore.capturedFilter
 	if f == nil {
 		t.Fatal("expected filter to be passed to store")
+		return
 	}
 	if f.Status == nil || *f.Status != store.StatusFailed {
 		t.Errorf("expected status=failed, got %v", f.Status)
@@ -307,6 +308,7 @@ func TestHandleListExecutions_WhenTargetProvided_ItShouldPassTargetFilter(t *tes
 	f := execStore.capturedFilter
 	if f == nil {
 		t.Fatal("expected filter to be passed to store")
+		return
 	}
 	if f.Target == nil || *f.Target != "eph-dev-mc01" {
 		t.Errorf("expected target=eph-dev-mc01, got %v", f.Target)
@@ -325,6 +327,7 @@ func TestHandleAudit_WhenTargetProvided_ItShouldPassTargetFilter(t *testing.T) {
 	f := auditStore.capturedFilter
 	if f == nil {
 		t.Fatal("expected filter to be passed to store")
+		return
 	}
 	if f.Target == nil || *f.Target != "eph-dev-rc" {
 		t.Errorf("expected target=eph-dev-rc, got %v", f.Target)
@@ -354,6 +357,7 @@ func TestHandleAudit_WhenFiltersProvided_ItShouldPassFilterToStore(t *testing.T)
 	f := auditStore.capturedFilter
 	if f == nil {
 		t.Fatal("expected filter to be passed to store")
+		return
 	}
 	if f.Method == nil || *f.Method != "POST" {
 		t.Errorf("expected method=POST, got %v", f.Method)

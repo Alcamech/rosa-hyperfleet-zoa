@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"runtime/debug"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,25 +16,20 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/version"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
 )
 
-const labelKey = "zoa.openshift.io/execution-id"
+const labelKey = labels.KeyExecutionID
 
-var jobNamespace = envOrDefault("ZOA_JOBS_NAMESPACE", "zoa-jobs")
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
+var jobNamespace = labels.JobsNamespace()
 
 // STSAssumeRoler abstracts STS AssumeRole for testability.
 type STSAssumeRoler interface {
@@ -51,30 +45,32 @@ type SyncResult struct {
 }
 
 type Executor struct {
-	kubeClient      kubernetes.Interface
-	restConfig      *rest.Config
-	s3Client        S3API
-	stsClient       STSAssumeRoler
-	awsCfg          *aws.Config
-	artifactBucket  string
-	uploaderRoleARN string
-	awsReadRoleARN  string
-	awsWriteRoleARN string
-	kmsKeyARN       string
-	region          string
-	jobImage        string
-	logger          *slog.Logger
-	eksCircuit      *circuitBreaker
+	kubeClient       kubernetes.Interface
+	restConfig       *rest.Config
+	s3Client         S3API
+	stsClient        STSAssumeRoler
+	awsCfg           *aws.Config
+	artifactBucket   string
+	uploaderRoleARN  string
+	awsReadRoleARN   string
+	awsWriteRoleARN  string
+	kmsKeyARN        string
+	region           string
+	jobImage         string
+	deploymentTarget string
+	logger           *slog.Logger
+	eksCircuit       *circuitBreaker
 }
 
 type ExecutorConfig struct {
-	ArtifactBucket  string
-	UploaderRoleARN string
-	AWSReadRoleARN  string
-	AWSWriteRoleARN string
-	KMSKeyARN       string
-	Region          string
-	JobImage        string
+	ArtifactBucket   string
+	UploaderRoleARN  string
+	AWSReadRoleARN   string
+	AWSWriteRoleARN  string
+	KMSKeyARN        string
+	Region           string
+	JobImage         string
+	DeploymentTarget string
 }
 
 func New(kubeClient kubernetes.Interface, restConfig *rest.Config, s3Client S3API, awsCfg *aws.Config, cfg ExecutorConfig, logger *slog.Logger) *Executor {
@@ -83,20 +79,21 @@ func New(kubeClient kubernetes.Interface, restConfig *rest.Config, s3Client S3AP
 		stsClient = sts.NewFromConfig(*awsCfg)
 	}
 	return &Executor{
-		kubeClient:      kubeClient,
-		restConfig:      restConfig,
-		s3Client:        s3Client,
-		stsClient:       stsClient,
-		awsCfg:          awsCfg,
-		artifactBucket:  cfg.ArtifactBucket,
-		uploaderRoleARN: cfg.UploaderRoleARN,
-		awsReadRoleARN:  cfg.AWSReadRoleARN,
-		awsWriteRoleARN: cfg.AWSWriteRoleARN,
-		kmsKeyARN:       cfg.KMSKeyARN,
-		region:          cfg.Region,
-		jobImage:        cfg.JobImage,
-		logger:          logger,
-		eksCircuit:      newCircuitBreaker(),
+		kubeClient:       kubeClient,
+		restConfig:       restConfig,
+		s3Client:         s3Client,
+		stsClient:        stsClient,
+		awsCfg:           awsCfg,
+		artifactBucket:   cfg.ArtifactBucket,
+		uploaderRoleARN:  cfg.UploaderRoleARN,
+		awsReadRoleARN:   cfg.AWSReadRoleARN,
+		awsWriteRoleARN:  cfg.AWSWriteRoleARN,
+		kmsKeyARN:        cfg.KMSKeyARN,
+		region:           cfg.Region,
+		jobImage:         cfg.JobImage,
+		deploymentTarget: cfg.DeploymentTarget,
+		logger:           logger,
+		eksCircuit:       newCircuitBreaker(),
 	}
 }
 
@@ -201,6 +198,10 @@ func (e *Executor) ExecuteSync(ctx context.Context, executionID string, action a
 	if syncCtx != nil && syncCtx.Force {
 		execParams.Force = true
 	}
+	execParams.DeploymentTarget = e.deploymentTarget
+	if syncCtx != nil && syncCtx.TargetCluster != "" {
+		execParams.TargetCluster = syncCtx.TargetCluster
+	}
 
 	if err := action.Validate(ctx, execParams); err != nil {
 		actionErr = fmt.Errorf("validation failed: %w", err)
@@ -222,6 +223,41 @@ func (e *Executor) ExecuteSync(ctx context.Context, executionID string, action a
 	execLogger.Info("uploading artifacts to S3", "output_bytes", len(outputBytes))
 
 	return
+}
+
+// ValidateAction runs the TA Validate hook at dispatch time using API-tier clients,
+// before an execution record is created or async Job resources are scheduled.
+func (e *Executor) ValidateAction(ctx context.Context, action actions.Action, params map[string]string) error {
+	meta := action.Metadata()
+	logger := e.logger.With("phase", "validate")
+
+	var execParams *actions.ExecutionParams
+	var err error
+
+	if meta.Scope == "aws-api" {
+		execParams, err = e.buildAWSParams(ctx, "pre-dispatch", params, meta, logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		execParams = &actions.ExecutionParams{
+			Params:           params,
+			ExecutionID:      "pre-dispatch",
+			DeploymentTarget: e.deploymentTarget,
+			KubeClient:       e.kubeClient,
+			RESTConfig:       e.restConfig,
+			Logger:           logger,
+		}
+		if e.restConfig != nil {
+			dynClient, dynErr := dynamic.NewForConfig(e.restConfig)
+			if dynErr != nil {
+				return fmt.Errorf("building dynamic client for validation: %w", dynErr)
+			}
+			execParams.DynamicClient = dynClient
+		}
+	}
+
+	return action.Validate(ctx, execParams)
 }
 
 // DispatchAsync creates K8s resources (SA, RBAC, STS Secret, Job) for async execution.
@@ -315,8 +351,8 @@ func (e *Executor) DispatchAsync(ctx context.Context, exec *store.Execution, act
 			Name:      credsSecretName,
 			Namespace: jobNamespace,
 			Labels: map[string]string{
-				labelKey:                       exec.ID,
-				"app.kubernetes.io/managed-by": "zoa",
+				labelKey:            exec.ID,
+				labels.KeyManagedBy: labels.ValueManagedByZOA,
 			},
 		},
 		Data: map[string][]byte{
@@ -349,10 +385,10 @@ func (e *Executor) DispatchAsync(ctx context.Context, exec *store.Execution, act
 			Name:      fmt.Sprintf("zoa-%s", exec.ID),
 			Namespace: jobNamespace,
 			Labels: map[string]string{
-				labelKey:                       exec.ID,
-				"zoa.openshift.io/action":      exec.Action,
-				"zoa.openshift.io/target":      exec.TargetCluster,
-				"app.kubernetes.io/managed-by": "zoa",
+				labelKey:            exec.ID,
+				labels.KeyAction:    exec.Action,
+				labels.KeyTarget:    exec.TargetCluster,
+				labels.KeyManagedBy: labels.ValueManagedByZOA,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -362,8 +398,8 @@ func (e *Executor) DispatchAsync(ctx context.Context, exec *store.Execution, act
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						labelKey:                       exec.ID,
-						"app.kubernetes.io/managed-by": "zoa",
+						labelKey:            exec.ID,
+						labels.KeyManagedBy: labels.ValueManagedByZOA,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -381,6 +417,7 @@ func (e *Executor) DispatchAsync(ctx context.Context, exec *store.Execution, act
 								{Name: "S3_PREFIX", Value: fmt.Sprintf("executions/%s", exec.ID)},
 								{Name: "PARAMS", Value: marshalParamsEnv(exec.Params)},
 								{Name: "OPERATOR", Value: exec.Operator},
+								{Name: "ZOA_DEPLOYMENT_TARGET", Value: e.deploymentTarget},
 							},
 							// S3 credentials from STS-scoped Secret (mounted as env vars)
 							EnvFrom: []corev1.EnvFromSource{
@@ -524,9 +561,11 @@ func (e *Executor) buildAWSParams(ctx context.Context, executionID string, param
 	logger.Info("assumed AWS role for TA execution", "role", roleARN, "type", meta.Type)
 
 	return &actions.ExecutionParams{
-		Params:    params,
-		AWSConfig: &scopedCfg,
-		Logger:    logger,
+		Params:           params,
+		ExecutionID:      executionID,
+		DeploymentTarget: e.deploymentTarget,
+		AWSConfig:        &scopedCfg,
+		Logger:           logger,
 	}, nil
 }
 
@@ -550,12 +589,14 @@ func (e *Executor) buildKubeParams(ctx context.Context, executionID string, para
 	}
 
 	return &actions.ExecutionParams{
-		Params:        params,
-		TargetCluster: "",
-		KubeClient:    execClient,
-		DynamicClient: dynClient,
-		RESTConfig:    execConfig,
-		Logger:        logger,
+		Params:           params,
+		ExecutionID:      executionID,
+		TargetCluster:    "",
+		DeploymentTarget: e.deploymentTarget,
+		KubeClient:       execClient,
+		DynamicClient:    dynClient,
+		RESTConfig:       execConfig,
+		Logger:           logger,
 	}, nil
 }
 

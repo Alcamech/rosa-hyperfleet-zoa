@@ -261,20 +261,3 @@ func TestBuildAWSParams_WhenSTSFails_ItShouldReturnError(t *testing.T) {
 		t.Fatal("expected error when STS AssumeRole fails")
 	}
 }
-
-// --- envOrDefault tests ---
-
-func TestEnvOrDefault_WhenSet_ItShouldReturnValue(t *testing.T) {
-	t.Setenv("TEST_ZOA_ENV_KEY", "custom-ns")
-	result := envOrDefault("TEST_ZOA_ENV_KEY", "fallback-ns")
-	if result != "custom-ns" {
-		t.Errorf("expected 'custom-ns', got %q", result)
-	}
-}
-
-func TestEnvOrDefault_WhenUnset_ItShouldReturnFallback(t *testing.T) {
-	result := envOrDefault("TEST_ZOA_UNSET_KEY_12345", "default-value")
-	if result != "default-value" {
-		t.Errorf("expected 'default-value', got %q", result)
-	}
-}

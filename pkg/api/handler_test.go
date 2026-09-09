@@ -15,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
@@ -111,11 +112,12 @@ func init() {
 	// Register test actions
 	actions.Register(&testAction{
 		meta: actions.ActionMetadata{
-			Name:           "test-read",
-			Scope:          "kube-api",
-			Type:           "read",
-			ExecutionMode:  "sync",
-			TimeoutSeconds: 60,
+			Name:              "test-read",
+			Scope:             "kube-api",
+			Type:              "read",
+			ExecutionMode:     "sync",
+			TimeoutSeconds:    60,
+			DeploymentTargets: []string{actions.DeploymentTargetRC, actions.DeploymentTargetMC},
 			Parameters: []actions.ParameterDef{
 				{Name: "namespace", Required: true},
 			},
@@ -129,6 +131,7 @@ func init() {
 			ExecutionMode:        "sync",
 			TimeoutSeconds:       60,
 			WriteCooldownSeconds: 300,
+			DeploymentTargets:    []string{actions.DeploymentTargetRC, actions.DeploymentTargetMC},
 			Parameters: []actions.ParameterDef{
 				{Name: "namespace", Required: true},
 				{Name: "name", Required: true},
@@ -137,12 +140,13 @@ func init() {
 	})
 	actions.Register(&testAction{
 		meta: actions.ActionMetadata{
-			Name:           "test-write-dryrun",
-			Scope:          "kube-api",
-			Type:           "read",
-			ExecutionMode:  "sync",
-			TimeoutSeconds: 60,
-			DryRunAction:   "test-read",
+			Name:              "test-write-dryrun",
+			Scope:             "kube-api",
+			Type:              "read",
+			ExecutionMode:     "sync",
+			TimeoutSeconds:    60,
+			DryRunAction:      "test-read",
+			DeploymentTargets: []string{actions.DeploymentTargetRC, actions.DeploymentTargetMC},
 			Parameters: []actions.ParameterDef{
 				{Name: "namespace", Required: true},
 				{Name: "name", Required: true},
@@ -435,12 +439,12 @@ func TestHandleCreate_WhenDispatched_ItShouldRecordJiraInAudit(t *testing.T) {
 
 	body := createRequest{
 		Jira:          "ROSAENG-2024",
-		Params:        map[string]string{"namespace": "default", "resource": "pods"},
+		Params:        map[string]string{"namespace": "default"},
 		ExecutionMode: "async",
 	}
 	// Async dispatch may fail due to nil K8s client in test, but audit is recorded
 	// at dispatch time (before execution attempt).
-	_ = doRequest(h, "POST", "/api/v0/trusted-actions/get_resource/run", body, defaultHeaders())
+	_ = doRequest(h, "POST", "/api/v0/trusted-actions/test-read/run", body, defaultHeaders())
 
 	if len(auditCapture.recorded) == 0 {
 		t.Fatal("expected audit entry for dispatch")
@@ -451,8 +455,8 @@ func TestHandleCreate_WhenDispatched_ItShouldRecordJiraInAudit(t *testing.T) {
 	if auditCapture.recorded[0].StatusCode != http.StatusAccepted {
 		t.Errorf("expected audit status_code=202 (recorded at dispatch), got %d", auditCapture.recorded[0].StatusCode)
 	}
-	if auditCapture.recorded[0].Action != "get_resource" {
-		t.Errorf("expected action=get_resource, got %q", auditCapture.recorded[0].Action)
+	if auditCapture.recorded[0].Action != "test-read" {
+		t.Errorf("expected action=test-read, got %q", auditCapture.recorded[0].Action)
 	}
 }
 
@@ -510,11 +514,11 @@ func TestHandleCreate_WhenForced_ItShouldRecordForceInAuditAndExecution(t *testi
 
 	body := createRequest{
 		Jira:          "DEMO-021",
-		Params:        map[string]string{"namespace": "default", "resource": "pods"},
+		Params:        map[string]string{"namespace": "default"},
 		Force:         true,
 		ExecutionMode: "async",
 	}
-	_ = doRequest(h, "POST", "/api/v0/trusted-actions/get_resource/run", body, defaultHeaders())
+	_ = doRequest(h, "POST", "/api/v0/trusted-actions/test-read/run", body, defaultHeaders())
 
 	if len(execStore.created) == 0 {
 		t.Fatal("expected execution to be created")
@@ -615,6 +619,88 @@ func TestHandleCreate_WhenInvalidExecutionMode_ItShouldReturn400(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&resp)
 	if resp["code"] != "invalid_execution_mode" {
 		t.Errorf("expected invalid_execution_mode code, got %q", resp["code"])
+	}
+}
+
+func TestHandleCreate_WhenMustGatherGatherInvalidForDeployment_ItShouldRejectBeforeDispatch(t *testing.T) {
+	actions.SetDeploymentTarget("mc")
+	t.Cleanup(func() { actions.SetDeploymentTarget("") })
+
+	execStore := &mockExecStore{}
+	kubeClient := fake.NewClientset()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	exec := executor.New(kubeClient, &rest.Config{Host: "https://localhost:6443"}, nil, nil, executor.ExecutorConfig{
+		DeploymentTarget: "mc",
+		Region:           "us-east-1",
+	}, logger)
+	cfg := &config.Config{
+		HandlerMode:              "api",
+		ArtifactBucket:           "test-bucket",
+		WriteCooldownSeconds:     300,
+		MaxConcurrentPerTarget:   5,
+		TargetCluster:            "test-cluster",
+		ExecutionDeadlineSeconds: 295,
+	}
+	h := New(cfg, execStore, &mockAuditStore{}, exec, nil, logger)
+
+	body := createRequest{
+		Jira:   "RO-123",
+		Params: map[string]string{"gather": "rc"},
+	}
+
+	rr := doRequest(h, "POST", "/api/v0/trusted-actions/must_gather/run", body, defaultHeaders())
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["code"] != "validation_failed" {
+		t.Errorf("expected validation_failed code, got %q", resp["code"])
+	}
+	if !strings.Contains(resp["reason"], "not allowed on mc ZOA endpoint") {
+		t.Errorf("expected deployment gather error, got %q", resp["reason"])
+	}
+	if len(execStore.created) != 0 {
+		t.Fatalf("expected no execution record, got %d", len(execStore.created))
+	}
+}
+
+func TestHandleCreate_WhenMustGatherSyncOverride_ItShouldReturn400(t *testing.T) {
+	execStore := &mockExecStore{}
+	kubeClient := fake.NewClientset()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	exec := executor.New(kubeClient, &rest.Config{Host: "https://localhost:6443"}, nil, nil, executor.ExecutorConfig{
+		Region: "us-east-1",
+	}, logger)
+	cfg := &config.Config{
+		HandlerMode:              "api",
+		ArtifactBucket:           "test-bucket",
+		WriteCooldownSeconds:     300,
+		MaxConcurrentPerTarget:   5,
+		TargetCluster:            "test-cluster",
+		ExecutionDeadlineSeconds: 295,
+	}
+	h := New(cfg, execStore, &mockAuditStore{}, exec, nil, logger)
+
+	body := createRequest{
+		Jira:          "JIRA-123",
+		Params:        map[string]string{"gather": "mc", "skip_must_gather_image": "true"},
+		ExecutionMode: "sync",
+	}
+
+	rr := doRequest(h, "POST", "/api/v0/trusted-actions/must_gather/run", body, defaultHeaders())
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["code"] != "execution_mode_locked" {
+		t.Errorf("expected execution_mode_locked code, got %q", resp["code"])
 	}
 }
 
@@ -1079,6 +1165,35 @@ func TestHandleCreate_WhenAsync_ItShouldNotIncludeInlineOutput(t *testing.T) {
 	}
 	if resp["logs"] != nil && resp["logs"] != "" {
 		t.Error("async response should NOT include inline logs")
+	}
+}
+
+func TestHandleGetExecution_WhenTarGzWithoutManifest_ItShouldReturnDownloadHint(t *testing.T) {
+	execStore := &mockExecStore{
+		executions: []*store.Execution{
+			{
+				ID:           "exec-mg-002",
+				Action:       "must_gather",
+				Status:       store.StatusSucceeded,
+				OutputFormat: "tar.gz",
+				OutputBytes:  99999999,
+			},
+		},
+	}
+	h := testHandlerWithS3(execStore, &mockS3{objects: map[string]string{}})
+
+	rr := doRequest(h, "GET", "/api/v0/trusted-actions/runs/exec-mg-002?include=output", nil, defaultHeaders())
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+
+	outputStr, ok := resp["output"].(string)
+	if !ok || !strings.Contains(outputStr, "zoa download") {
+		t.Errorf("expected download hint, got %v", resp["output"])
 	}
 }
 
