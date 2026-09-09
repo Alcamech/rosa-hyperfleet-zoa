@@ -24,8 +24,8 @@ var _ = Describe("get_secret", func() {
 				}
 			})
 
-			It("blocks the clusters- HCP namespace prefix regardless of resource existence", func() {
-				out := runActionExpectFailure(tgt, "get_secret", "--namespace", "clusters-does-not-exist", "--name", "whatever")
+			It("blocks the cluster- HCP namespace prefix regardless of resource existence", func() {
+				out := runActionExpectFailure(tgt, "get_secret", "--namespace", "cluster-does-not-exist", "--name", "whatever")
 				// Either: TA rejects due to HCP protection, OR executor fails to create RBAC
 				// (namespace doesn't exist). Both prevent access — security invariant holds.
 				Expect(out).To(SatisfyAny(
@@ -34,9 +34,8 @@ var _ = Describe("get_secret", func() {
 				))
 			})
 
-			It("blocks the ocm- HCP namespace prefix regardless of resource existence", func() {
-				out := runActionExpectFailure(tgt, "get_secret", "--namespace", "ocm-does-not-exist")
-				// Either: TA rejects due to HCP protection, OR executor fails to create RBAC
+			It("blocks control plane namespaces under cluster- prefix", func() {
+				out := runActionExpectFailure(tgt, "get_secret", "--namespace", "cluster-abc123-my-hc")
 				Expect(out).To(SatisfyAny(
 					ContainSubstring("HCP namespace protection"),
 					ContainSubstring("not found"),

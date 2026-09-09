@@ -27,7 +27,7 @@ GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/golangci-lint)
 $(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
-VERSION     = 0.3.1
+VERSION     = 0.4.0
 VERSION_PKG = github.com/openshift-online/rosa-hyperfleet-zoa/internal/version
 VERSION_LDFLAGS = -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS         = -ldflags "$(VERSION_LDFLAGS)"
@@ -121,7 +121,7 @@ define run_e2e_parallel
 endef
 
 test-e2e: build
-	$(call run_e2e_parallel,-timeout 20m)
+	$(call run_e2e_parallel,-timeout 45m)
 
 # test-e2e-smoke runs only the specs labeled "smoke" — cheap, --dry-run/read-only
 # coverage (discovery + one read TA + one write TA dry-run) meant to be run

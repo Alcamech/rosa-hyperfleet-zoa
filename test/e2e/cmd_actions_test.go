@@ -11,21 +11,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// knownActions is the full Trusted Action inventory registered in
-// pkg/actions/ at the time this suite was written. If this list drifts from
-// what the server reports, either a TA was added without e2e coverage or one
-// was deregistered without updating this suite — both are worth a look.
-var knownActions = []string{
-	"get_resource",
-	"get_secret",
-	"delete_pod",
-	"rollout_restart",
-	"list_eks_clusters",
-	"describe_eks_cluster",
-	"list_vpc_endpoints",
-	"describe_vpc_endpoint",
-}
-
 var _ = Describe("zoa actions", func() {
 	for _, tgt := range targets {
 		tgt := tgt
@@ -47,9 +32,10 @@ var _ = Describe("zoa actions", func() {
 				for _, a := range list.Items {
 					names = append(names, a.Name)
 				}
-				for _, want := range knownActions {
-					Expect(names).To(ContainElement(want), "action %q missing from `zoa actions` — was it deregistered?", want)
-				}
+				want := expectedActionsForDeployment(tgt.DeploymentTarget)
+				Expect(names).To(Equal(want),
+					"`zoa actions` on %s should list exactly the TAs with DeploymentTargets including %q",
+					tgt.Name, tgt.DeploymentTarget)
 			})
 
 			It("lists actions in table format by default", func() {
