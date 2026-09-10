@@ -37,13 +37,7 @@ func (h *Handler) handleDownloadOutput(w http.ResponseWriter, r *http.Request, i
 
 	switch artifact {
 	case "output":
-		if exec.OutputFormat == "tar.gz" {
-			s3Key = fmt.Sprintf("executions/%s/output.tar.gz", id)
-			contentType = "application/gzip"
-		} else {
-			s3Key = fmt.Sprintf("executions/%s/output.json", id)
-			contentType = "application/json"
-		}
+		s3Key, contentType = outputS3Object(id, exec.OutputFormat)
 	case "logs":
 		s3Key = fmt.Sprintf("executions/%s/execution.log", id)
 		contentType = "text/plain"
@@ -57,13 +51,28 @@ func (h *Handler) handleDownloadOutput(w http.ResponseWriter, r *http.Request, i
 		Key:    aws.String(s3Key),
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "NoSuchKey") {
-			writeError(w, http.StatusNotFound, "artifact_not_found", fmt.Sprintf("%s not available for this execution", artifact))
+		if artifact == "output" && strings.Contains(err.Error(), "NoSuchKey") {
+			altKey, altType := outputS3Object(id, alternateOutputFormat(exec.OutputFormat))
+			if altKey != s3Key {
+				out, err = h.s3Client.GetObject(ctx, &s3.GetObjectInput{
+					Bucket: aws.String(h.cfg.ArtifactBucket),
+					Key:    aws.String(altKey),
+				})
+				if err == nil {
+					s3Key = altKey
+					contentType = altType
+				}
+			}
+		}
+		if err != nil {
+			if strings.Contains(err.Error(), "NoSuchKey") {
+				writeError(w, http.StatusNotFound, "artifact_not_found", fmt.Sprintf("%s not available for this execution", artifact))
+				return
+			}
+			h.logger.Error("failed to get S3 object", "error", err, "key", s3Key)
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to retrieve artifact")
 			return
 		}
-		h.logger.Error("failed to get S3 object", "error", err, "key", s3Key)
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to retrieve artifact")
-		return
 	}
 	defer out.Body.Close()
 
@@ -76,4 +85,18 @@ func (h *Handler) handleDownloadOutput(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusOK)
 
 	_, _ = io.Copy(w, out.Body)
+}
+
+func outputS3Object(id, format string) (key, contentType string) {
+	if format == "tar.gz" {
+		return fmt.Sprintf("executions/%s/output.tar.gz", id), "application/gzip"
+	}
+	return fmt.Sprintf("executions/%s/output.json", id), "application/json"
+}
+
+func alternateOutputFormat(format string) string {
+	if format == "tar.gz" {
+		return "json"
+	}
+	return "tar.gz"
 }

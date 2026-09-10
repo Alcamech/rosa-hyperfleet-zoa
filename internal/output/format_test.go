@@ -82,6 +82,12 @@ func TestFormatBytes(t *testing.T) {
 			if got != tt.expected {
 				t.Errorf("FormatBytes(%v) = %q, want %q", tt.bytes, got, tt.expected)
 			}
+			if tt.bytes != nil {
+				gotInt := FormatBytesInt64(*tt.bytes)
+				if gotInt != tt.expected {
+					t.Errorf("FormatBytesInt64(%v) = %q, want %q", *tt.bytes, gotInt, tt.expected)
+				}
+			}
 		})
 	}
 }

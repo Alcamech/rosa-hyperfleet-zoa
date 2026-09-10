@@ -15,6 +15,8 @@ import (
 
 type runOptions struct {
 	namespace     string
+	clusterID     string
+	gather        string
 	allNS         bool
 	selector      string
 	verbose       bool
@@ -81,6 +83,8 @@ On failure, logs are printed to stderr. Use --no-wait to fire and forget.`,
 	}
 
 	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace")
+	cmd.Flags().StringVar(&opts.clusterID, "cluster-id", "", "Hosted cluster UUID (must_gather: required when --gather includes hcp)")
+	cmd.Flags().StringVar(&opts.gather, "gather", "", "must_gather scopes: hcp, mc, rc — required; must match this ZOA endpoint")
 	cmd.Flags().BoolVarP(&opts.allNS, "all-namespaces", "A", false, "All namespaces")
 	cmd.Flags().StringVarP(&opts.selector, "selector", "l", "", "Label selector")
 	cmd.Flags().BoolVarP(&opts.verbose, "verbose", "v", false, "Full JSON output from the action (no compact summary)")
@@ -160,7 +164,7 @@ func runAction(ctx context.Context, global *GlobalOptions, opts *runOptions, act
 				Output:          resp.Output,
 				Logs:            resp.Logs,
 			}
-			return printRunResult(global, exec)
+			return printRunResult(ctx, global, exec)
 		}
 		include := "output"
 		if resp.Status != "succeeded" {
@@ -170,7 +174,7 @@ func runAction(ctx context.Context, global *GlobalOptions, opts *runOptions, act
 		if err != nil {
 			full = &client.Execution{ID: resp.ID, Status: resp.Status}
 		}
-		return printRunResult(global, full)
+		return printRunResult(ctx, global, full)
 	}
 
 	// Only async with --wait reaches here; sync always returns terminal status inline.
@@ -186,7 +190,7 @@ func runAction(ctx context.Context, global *GlobalOptions, opts *runOptions, act
 		return err
 	}
 
-	return printRunResult(global, result)
+	return printRunResult(ctx, global, result)
 }
 
 func isTerminalStatus(status string) bool {
@@ -219,6 +223,9 @@ func poll(ctx context.Context, c APIClient, id string, cfg pollConfig) (*client.
 			}
 			full, err := c.GetExecution(ctx, id, include)
 			if err == nil {
+				if full.OutputBytes == nil && exec.OutputBytes != nil {
+					full.OutputBytes = exec.OutputBytes
+				}
 				return full, nil
 			}
 			return exec, nil
@@ -242,7 +249,7 @@ func poll(ctx context.Context, c APIClient, id string, cfg pollConfig) (*client.
 	}
 }
 
-func printRunResult(global *GlobalOptions, exec *client.Execution) error {
+func printRunResult(ctx context.Context, global *GlobalOptions, exec *client.Execution) error {
 	timing := fmt.Sprintf("%s · mode=%s", output.FormatDuration(exec.DurationMs), exec.ExecutionMode)
 
 	if exec.Status == "succeeded" {
@@ -251,6 +258,18 @@ func printRunResult(global *GlobalOptions, exec *client.Execution) error {
 		if global.OutputFormat == output.FormatJSON {
 			return output.JSON(os.Stdout, exec)
 		}
+		if isDownloadHint(exec.Output.String()) {
+			c, err := getClient(global)
+			if err != nil {
+				return err
+			}
+			outPath, nbytes, err := autoDownloadOutput(ctx, c, exec.ID)
+			if err != nil {
+				return fmt.Errorf("auto-download failed: %w (use 'zoa download %s' manually)", err, exec.ID)
+			}
+			printSavedArtifact("output", nbytes, outPath)
+			return nil
+		}
 		if exec.Output.String() != "" {
 			fmt.Fprintf(os.Stderr, "---\n")
 		}
@@ -258,12 +277,30 @@ func printRunResult(global *GlobalOptions, exec *client.Execution) error {
 		return nil
 	}
 
-	// Failed execution
+	// Failed execution — print logs (standard ZOA behavior) and save partial output if any.
 	fmt.Fprintf(os.Stderr, "✗ %s · %s\n", exec.Status, timing)
 	if exec.Logs != "" {
 		fmt.Fprint(os.Stderr, exec.Logs)
 	}
+	trySavePartialOutput(ctx, global, exec)
 	return fmt.Errorf("execution %s: %s", exec.ID, exec.Status)
+}
+
+func trySavePartialOutput(ctx context.Context, global *GlobalOptions, exec *client.Execution) {
+	if exec.OutputBytes == nil || *exec.OutputBytes == 0 {
+		return
+	}
+	c, err := getClient(global)
+	if err != nil {
+		return
+	}
+	outPath, nbytes, err := autoDownloadOutput(ctx, c, exec.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Partial output available (%s) but download failed: %v\n  use: zoa download %s\n",
+			output.FormatBytes(exec.OutputBytes), err, exec.ID)
+		return
+	}
+	printSavedArtifact("partial output", nbytes, outPath)
 }
 
 func buildParams(opts *runOptions) map[string]string {
@@ -271,6 +308,12 @@ func buildParams(opts *runOptions) map[string]string {
 
 	if opts.namespace != "" {
 		params["namespace"] = opts.namespace
+	}
+	if opts.clusterID != "" {
+		params["cluster_id"] = opts.clusterID
+	}
+	if opts.gather != "" {
+		params["gather"] = opts.gather
 	}
 	if opts.allNS {
 		params["all_namespaces"] = "true"

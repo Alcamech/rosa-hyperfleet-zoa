@@ -44,12 +44,11 @@ func showOutput(ctx context.Context, global *GlobalOptions, id string) error {
 	}
 
 	if isDownloadHint(exec.Output.String()) {
-		outPath := fmt.Sprintf("zoa-%s-output.json", id)
-		fmt.Fprintf(os.Stderr, "Output too large for terminal — downloading to %s\n", outPath)
-		if dlErr := autoDownload(ctx, c, id, outPath); dlErr != nil {
+		outPath, nbytes, dlErr := autoDownloadOutput(ctx, c, id)
+		if dlErr != nil {
 			return fmt.Errorf("auto-download failed: %w (use 'zoa download %s' manually)", dlErr, id)
 		}
-		fmt.Fprintf(os.Stderr, "Saved → %s\n", outPath)
+		printSavedArtifact("output", nbytes, outPath)
 		return nil
 	}
 

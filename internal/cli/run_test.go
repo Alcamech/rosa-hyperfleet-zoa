@@ -1,14 +1,34 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
 )
+
+func TestBuildParams_WhenClusterIDSet_ItShouldIncludeClusterID(t *testing.T) {
+	opts := &runOptions{clusterID: "1600392f-9a94-4957-b672-eff8dc2be0bb"}
+	params := buildParams(opts)
+	if params["cluster_id"] != "1600392f-9a94-4957-b672-eff8dc2be0bb" {
+		t.Errorf("expected cluster_id, got %q", params["cluster_id"])
+	}
+}
+
+func TestBuildParams_WhenGatherSet_ItShouldIncludeGather(t *testing.T) {
+	opts := &runOptions{gather: "mc,rc"}
+	params := buildParams(opts)
+	if params["gather"] != "mc,rc" {
+		t.Errorf("expected gather=mc,rc, got %q", params["gather"])
+	}
+}
 
 func TestBuildParams_WhenNamespaceSet_ItShouldIncludeNamespace(t *testing.T) {
 	opts := &runOptions{namespace: "grafana"}
@@ -385,4 +405,191 @@ func TestPoll_WhenFailed_ItShouldReturnLogsInsteadOfOutput(t *testing.T) {
 	if exec.Logs != "error: something broke" {
 		t.Errorf("expected logs in result, got %q", exec.Logs)
 	}
+}
+
+func TestPoll_WhenFailedLogsOmitOutputBytes_ItShouldPreserveFromListResponse(t *testing.T) {
+	listBytes := int64(9771733)
+	callCount := 0
+	mock := &mockClient{
+		getExecutionFn: func(_ context.Context, id string, include string) (*client.Execution, error) {
+			callCount++
+			if callCount == 1 {
+				return &client.Execution{
+					ID:          id,
+					Status:      "failed",
+					OutputBytes: &listBytes,
+				}, nil
+			}
+			if include != "logs" {
+				t.Errorf("expected include='logs' for failed execution, got %q", include)
+			}
+			return &client.Execution{
+				ID:     id,
+				Status: "failed",
+				Logs:   "gather image collection failed",
+			}, nil
+		},
+	}
+
+	exec, err := poll(context.Background(), mock, "exec-partial-bytes", pollConfig{
+		interval: 5 * time.Millisecond,
+		timeout:  1 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exec.OutputBytes == nil {
+		t.Fatal("expected OutputBytes from list response to be preserved")
+	}
+	if *exec.OutputBytes != listBytes {
+		t.Errorf("expected OutputBytes=%d, got %d", listBytes, *exec.OutputBytes)
+	}
+	if exec.Logs != "gather image collection failed" {
+		t.Errorf("expected logs from second get, got %q", exec.Logs)
+	}
+}
+
+func TestPrintRunResult_WhenOutputIsDownloadHint_ItShouldAutoDownload(t *testing.T) {
+	dur := int64(5000)
+	body := []byte("tarball-bytes")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/trusted-actions/runs/exec-mg/output" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	mock := &mockClient{
+		rawGetFn: func(_ context.Context, path string) (*http.Response, error) {
+			return http.Get(server.URL + path)
+		},
+	}
+	global := newMockGlobalOpts(mock)
+
+	exec := &client.Execution{
+		ID:            "exec-mg",
+		Status:        "succeeded",
+		ExecutionMode: "async",
+		Output:        client.FlexString(`"use 'zoa download' for large or binary artifacts"`),
+		DurationMs:    &dur,
+	}
+
+	err := printRunResult(context.Background(), global, exec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	outPath := "zoa-exec-mg-output.tar.gz"
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected downloaded artifact %q: %v", outPath, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(outPath) })
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, body) {
+		t.Errorf("unexpected artifact content")
+	}
+}
+
+func TestPrintRunResult_WhenFailedWithPartialOutput_ItShouldAutoDownload(t *testing.T) {
+	dur := int64(120000)
+	outBytes := int64(9771733)
+	body := []byte("partial-tar")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/trusted-actions/runs/exec-partial/output" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	mock := &mockClient{
+		rawGetFn: func(_ context.Context, path string) (*http.Response, error) {
+			return http.Get(server.URL + path)
+		},
+	}
+	global := newMockGlobalOpts(mock)
+
+	exec := &client.Execution{
+		ID:            "exec-partial",
+		Status:        "failed",
+		ExecutionMode: "async",
+		DurationMs:    &dur,
+		OutputBytes:   &outBytes,
+		Logs:          `{"msg":"gather image collection failed"}` + "\n",
+	}
+
+	err := printRunResult(context.Background(), global, exec)
+	if err == nil {
+		t.Fatal("expected error for failed execution")
+	}
+
+	outPath := "zoa-exec-partial-output.tar.gz"
+	if _, statErr := os.Stat(outPath); statErr != nil {
+		t.Fatalf("expected partial download at %q: %v", outPath, statErr)
+	}
+	t.Cleanup(func() { _ = os.Remove(outPath) })
+}
+
+func TestRunAction_WhenWaitCompletesWithDownloadHint_ItShouldAutoDownload(t *testing.T) {
+	body := []byte("must-gather-tar")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/trusted-actions/runs/exec-wait-mg/output" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	mock := &mockClient{
+		dispatchFn: func(_ context.Context, _ string, _ *client.DispatchRequest) (*client.DispatchResponse, error) {
+			return &client.DispatchResponse{
+				ID:            "exec-wait-mg",
+				Status:        "dispatched",
+				TargetCluster: "mc-useast1-1",
+				ExecutionMode: "async",
+			}, nil
+		},
+		getExecutionFn: func(_ context.Context, id string, _ string) (*client.Execution, error) {
+			return &client.Execution{
+				ID:            id,
+				Status:        "succeeded",
+				ExecutionMode: "async",
+				Output:        client.FlexString(`"use 'zoa download' for large or binary artifacts"`),
+			}, nil
+		},
+		rawGetFn: func(_ context.Context, path string) (*http.Response, error) {
+			return http.Get(server.URL + path)
+		},
+	}
+
+	global := newMockGlobalOpts(mock)
+	opts := &runOptions{
+		jira:        "ROSAENG-1234",
+		clusterID:   "1600392f-9a94-4957-b672-eff8dc2be0bb",
+		gather:      "hcp",
+		wait:        true,
+		waitTimeout: 1 * time.Second,
+	}
+
+	err := runAction(context.Background(), global, opts, "must_gather")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	outPath := "zoa-exec-wait-mg-output.tar.gz"
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected downloaded artifact %q: %v", outPath, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(outPath) })
 }

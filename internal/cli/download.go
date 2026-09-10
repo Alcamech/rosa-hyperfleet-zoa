@@ -6,8 +6,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
 )
 
 type downloadOptions struct {
@@ -124,8 +128,83 @@ func downloadArtifact(ctx context.Context, global *GlobalOptions, opts *download
 
 	if !isBinaryContentType(contentType) {
 		_, _ = f.Write([]byte("\n"))
+		n++
 	}
 
-	fmt.Fprintf(os.Stderr, "Saved %s (%d bytes) → %s\n", opts.artifact, n, outPath)
+	printSavedArtifact(opts.artifact, n, outPath)
 	return nil
+}
+
+const tarballUnpackComment = "# unpack and enter bundle"
+
+func printSavedArtifact(artifact string, nbytes int64, outPath string) {
+	fmt.Fprintf(os.Stderr, "Saved %s (%s) → %s\n", artifact, output.FormatBytesInt64(nbytes), outPath)
+	if hint := tarballUnpackHint(outPath); hint != "" {
+		fmt.Fprintf(os.Stderr, "\n%s\n", hint)
+	}
+}
+
+// tarballUnpackHint returns a copy-pasteable shell snippet: comment line + chained command.
+func tarballUnpackHint(outPath string) string {
+	cmd := tarballUnpackCommand(outPath)
+	if cmd == "" {
+		return ""
+	}
+	return tarballUnpackComment + "\n" + cmd
+}
+
+// tarballUnpackCommand returns a single shell line to extract a ZOA output tarball
+// and cd into the unpacked directory (--one-top-level strips the .tar.gz suffix).
+func tarballUnpackCommand(outPath string) string {
+	if !strings.HasSuffix(outPath, ".tar.gz") {
+		return ""
+	}
+	archive := filepath.Base(outPath)
+	dir := strings.TrimSuffix(archive, ".tar.gz")
+	parent := filepath.Dir(outPath)
+	if parent == "." {
+		return fmt.Sprintf("tar xzf %s --one-top-level && cd %s", archive, dir)
+	}
+	return fmt.Sprintf("cd %s && tar xzf %s --one-top-level && cd %s", parent, archive, dir)
+}
+
+func autoDownloadOutput(ctx context.Context, c APIClient, executionID string) (string, int64, error) {
+	return downloadOutputToFile(ctx, c, executionID, "")
+}
+
+func downloadOutputToFile(ctx context.Context, c APIClient, executionID, filePath string) (string, int64, error) {
+	resp, err := c.RawGet(ctx, fmt.Sprintf("/trusted-actions/runs/%s/output", executionID))
+	if err != nil {
+		return "", 0, fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", 0, fmt.Errorf("download failed: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	outPath := filePath
+	if outPath == "" {
+		outPath = resolveDownloadPath(&downloadOptions{artifact: "output"}, executionID, contentType)
+	}
+
+	f, err := os.Create(outPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("creating file: %w", err)
+	}
+	defer f.Close()
+
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		return "", 0, fmt.Errorf("streaming artifact: %w", err)
+	}
+
+	if !isBinaryContentType(contentType) {
+		_, _ = f.Write([]byte("\n"))
+		n++
+	}
+
+	return outPath, n, nil
 }
