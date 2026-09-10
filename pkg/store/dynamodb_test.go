@@ -130,6 +130,7 @@ func TestDynamoDBExecutionStore_Get_WhenItemExists_ItShouldReturnExecution(t *te
 	}
 	if exec == nil {
 		t.Fatal("expected execution, got nil")
+		return
 	}
 	if exec.ID != "exec-get-1" {
 		t.Errorf("expected ID 'exec-get-1', got %q", exec.ID)

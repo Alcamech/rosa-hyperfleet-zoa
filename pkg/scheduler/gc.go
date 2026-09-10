@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
 )
 
@@ -25,6 +28,10 @@ func (r *Reconciler) RunGC(ctx context.Context) error {
 	}
 	if err := r.orphanGC(ctx); err != nil {
 		r.logger.Error("orphan garbage collection failed", "error", err)
+		phaseErrors++
+	}
+	if err := r.cleanupStaleMustGatherPods(ctx); err != nil {
+		r.logger.Error("stale must-gather pod cleanup failed", "error", err)
 		phaseErrors++
 	}
 
@@ -96,7 +103,7 @@ func (r *Reconciler) orphanGC(ctx context.Context) error {
 	const orphanAge = 30 * time.Minute
 
 	jobs, err := r.kubeClient.BatchV1().Jobs(r.cfg.JobsNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=zoa",
+		LabelSelector: labels.ZOAManagedSelector(),
 	})
 	if err != nil {
 		return fmt.Errorf("listing zoa jobs: %w", err)
@@ -111,7 +118,7 @@ func (r *Reconciler) orphanGC(ctx context.Context) error {
 			continue
 		}
 
-		execID := job.Labels["zoa.openshift.io/execution-id"]
+		execID := job.Labels[labels.KeyExecutionID]
 		if execID == "" {
 			continue
 		}
@@ -133,6 +140,52 @@ func (r *Reconciler) orphanGC(ctx context.Context) error {
 
 	if cleaned > 0 {
 		r.logger.Info("orphan garbage collection completed", "cleaned", cleaned)
+	}
+	return nil
+}
+
+// cleanupStaleMustGatherPods deletes terminal must-gather child pods left behind when
+// the runner Job was killed before its defer cleanup ran. Only Succeeded/Failed pods
+// older than staleMustGatherPodAge are removed — Running pods are never touched.
+func (r *Reconciler) cleanupStaleMustGatherPods(ctx context.Context) error {
+	const staleMustGatherPodAge = 30 * time.Minute
+
+	pods, err := r.kubeClient.CoreV1().Pods(r.cfg.JobsNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.MustGatherPodSelector(),
+	})
+	if err != nil {
+		return fmt.Errorf("listing must-gather pods: %w", err)
+	}
+
+	var cleaned int
+	for i, pod := range pods.Items {
+		if i >= r.cfg.MaxBatchPerTick || ctx.Err() != nil {
+			break
+		}
+		switch pod.Status.Phase {
+		case corev1.PodSucceeded, corev1.PodFailed:
+		default:
+			continue
+		}
+		if pod.CreationTimestamp.After(time.Now().Add(-staleMustGatherPodAge)) {
+			continue
+		}
+
+		execID := pod.Labels[labels.KeyExecutionID]
+		r.logger.Warn("deleting stale must-gather pod",
+			"pod", pod.Name,
+			"execution_id", execID,
+			"phase", pod.Status.Phase,
+		)
+		if err := r.kubeClient.CoreV1().Pods(r.cfg.JobsNamespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			r.logger.Warn("failed to delete stale must-gather pod", "pod", pod.Name, "error", err)
+			continue
+		}
+		cleaned++
+	}
+
+	if cleaned > 0 {
+		r.logger.Info("stale must-gather pod cleanup completed", "cleaned", cleaned)
 	}
 	return nil
 }

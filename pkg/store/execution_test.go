@@ -228,6 +228,7 @@ func TestMockExecutionStore_Get(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("expected execution, got nil")
+		return
 	}
 	if got.ID != "test-2" {
 		t.Fatalf("expected ID test-2, got %s", got.ID)
