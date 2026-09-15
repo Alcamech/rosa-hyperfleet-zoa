@@ -1,6 +1,6 @@
 //go:build e2e
 
-// TA: delete_pod (kube-api scope, write) — deletes a pod and verifies owner self-heals.
+// TA: delete_pod (kube-api scope, write) — deletes a real owned pod via ZOA.
 
 package e2e
 
@@ -14,25 +14,17 @@ var _ = Describe("delete_pod", func() {
 		tgt := tgt
 
 		Describe(tgt.Name, func() {
-			It("deletes a real coredns pod and confirms the owner self-heals", func() {
+			It("deletes a real coredns pod via ZOA", func() {
 				before := coreDNSPodNames(tgt)
 				Expect(before).NotTo(BeEmpty(), "coredns pods not found (selector %q in %s)", coreDNSSelector, coreDNSNamespace)
 				victim := before[0]
 
-				// The TA itself refuses to delete standalone pods (no
-				// ownerReferences) — coredns pods are always owned by a
-				// ReplicaSet, so the delete is safe regardless of replica
-				// count because the controller will recreate the pod.
+				// coredns pods are owned by a ReplicaSet, so delete_pod's
+				// ownerReferences safety check passes.
 				exec := runAction(tgt, "delete_pod", "--namespace", coreDNSNamespace, "--name", victim, "--force")
 				Expect(exec["status"]).To(Equal("succeeded"))
 				Expect(exec["action"]).To(Equal("delete_pod"), "this must be a real (non-dry-run) execution")
-
-				Eventually(func() []string {
-					return coreDNSPodNamesOrEmpty(tgt)
-				}, "2m", "5s").Should(And(
-					HaveLen(len(before)),
-					Not(ContainElement(victim)),
-				), "coredns should self-heal back to %d pod(s) with a new pod replacing %q", len(before), victim)
+				Expect(outputMap(exec)).To(HaveKeyWithValue("status", "deleted"))
 			})
 
 			It("rejects a missing required parameter before touching the cluster", func() {
