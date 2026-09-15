@@ -153,7 +153,8 @@ func runActionResult(tgt target, action string, extra ...string) (map[string]int
 
 	out, err := runZoa(tgt, args...)
 	if err != nil {
-		return nil, fmt.Errorf("[%s] zoa run %s %v failed: %w:\n%s", tgt.Name, action, extra, err, out)
+		base := fmt.Errorf("[%s] zoa run %s %v failed: %w:\n%s", tgt.Name, action, extra, err, out)
+		return nil, withExecutionLogs(tgt, executionIDFromRunOutput(out), base)
 	}
 
 	// CLI outputs human-readable status lines before JSON even with -o json
@@ -161,12 +162,55 @@ func runActionResult(tgt target, action string, extra ...string) (map[string]int
 
 	var exec map[string]interface{}
 	if jsonErr := json.Unmarshal([]byte(jsonStr), &exec); jsonErr != nil {
-		return nil, fmt.Errorf("[%s] invalid JSON from zoa run %s: %w:\njsonStr=%q\nraw output:\n%s", tgt.Name, action, jsonErr, jsonStr, out)
+		base := fmt.Errorf("[%s] invalid JSON from zoa run %s: %w:\njsonStr=%q\nraw output:\n%s", tgt.Name, action, jsonErr, jsonStr, out)
+		return nil, withExecutionLogs(tgt, executionIDFromRunOutput(out), base)
 	}
 	if exec["status"] != "succeeded" {
-		return nil, fmt.Errorf("[%s] zoa run %s did not succeed:\n%s", tgt.Name, action, out)
+		id, _ := exec["id"].(string)
+		base := fmt.Errorf("[%s] zoa run %s did not succeed (status=%v):\n%s", tgt.Name, action, exec["status"], out)
+		return nil, withExecutionLogs(tgt, id, base)
 	}
 	return exec, nil
+}
+
+// executionIDFromRunOutput extracts an execution UUID from zoa run CLI output
+// (JSON body or the human-readable "✓ <id> [cluster]" status line).
+func executionIDFromRunOutput(out string) string {
+	jsonStr := extractJSON(out)
+	var exec struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal([]byte(jsonStr), &exec) == nil && exec.ID != "" {
+		return exec.ID
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "✓ ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			return fields[1]
+		}
+	}
+	return ""
+}
+
+// withExecutionLogs appends `zoa logs <id>` output to err when an execution ID
+// is known. Best-effort: enrich the original run error with logs when available;
+// never replace or hide the underlying runActionResult failure.
+func withExecutionLogs(tgt target, executionID string, err error) error {
+	if err == nil || executionID == "" {
+		return err
+	}
+	logsOut, logsErr := runZoa(tgt, "logs", executionID)
+	if logsErr != nil {
+		return fmt.Errorf("%w\n\n(zoa logs %s failed: %v)", err, executionID, logsErr)
+	}
+	if strings.TrimSpace(logsOut) == "" {
+		return fmt.Errorf("%w\n\n--- zoa logs %s ---\n(no logs returned)", err, executionID)
+	}
+	return fmt.Errorf("%w\n\n--- zoa logs %s ---\n%s", err, executionID, logsOut)
 }
 
 // runAction dispatches a Trusted Action expected to succeed and fails the
