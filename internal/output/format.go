@@ -74,7 +74,11 @@ func FormatBytes(b *int64) string {
 	if b == nil {
 		return "-"
 	}
-	n := *b
+	return FormatBytesInt64(*b)
+}
+
+// FormatBytesInt64 renders a byte count as a compact human-readable size (B/K/M).
+func FormatBytesInt64(n int64) string {
 	switch {
 	case n == 0:
 		return "0B"

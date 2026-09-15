@@ -64,7 +64,7 @@ make images-push         # Build + push both images (dev workflow)
 - **Conformance gate**: `pkg/actions/conformance_test.go` enforces metadata, RBAC, naming, timeout, and test coverage on every PR
 - **Two execution modes**: sync (in-Lambda, ephemeral SA/RBAC) and async (K8s Job with STS Secret)
 - **Two scopes**: `kube-api` (K8s operations, per-execution SA impersonation) and `aws-api` (AWS operations, STS AssumeRole)
-- **Security invariant**: `get_secret` TA rejects access to HCP namespaces (`clusters-*`, `ocm-*`)
+- **Security invariant**: `get_secret` TA rejects access to HCP namespaces (`cluster-*`)
 - **Conventional commits**: Use `feat:`, `fix:`, `docs:`, `chore:`, `test:` prefixes
 - **Three-layer timeouts**: Lambda ceiling → code deadline (env var) → per-TA timeout (Go code)
 - **Architecture docs**: Live in `docs/` (self-contained), not in the hyperfleet repo
@@ -87,7 +87,7 @@ make images-push         # Build + push both images (dev workflow)
 
 ### Security Guidelines
 
-- **Never** access secrets in `clusters-*` or `ocm-*` namespaces from TAs
+- **Never** access secrets in `cluster-*` namespaces from TAs
 - **Always** declare least-privilege RBAC in TA metadata
 - **Never** hardcode credentials — use STS AssumeRole for AWS, SA impersonation for K8s
 - **Never** log sensitive data (tokens, credentials, customer content)

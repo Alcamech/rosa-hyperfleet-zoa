@@ -29,7 +29,7 @@ This repository is the single source of truth for ZOA: the API server, execution
 - **Immutable audit trail** — caller identity (AWS ARN), target, action, jira, duration; 365-day retention
 - **Write cooldown** — rate-limited per target to prevent cascading changes; bypassable with `--force`
 - **Max concurrent** — limits active executions per target (all modes); bypassable with `--force`
-- **HCP namespace protection** — secrets in customer namespaces (`clusters-*`, `ocm-*`) are blocked
+- **HCP namespace protection** — secrets in customer namespaces (`cluster-*`) are blocked
 - **FedRAMP-ready** — KMS encryption at rest, PITR with 35-day backups, deletion protection
 
 ### Why Serverless

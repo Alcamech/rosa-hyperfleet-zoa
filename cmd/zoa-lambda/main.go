@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/eksauth"
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/api"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
@@ -41,7 +42,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger = logger.With("target", cfg.TargetCluster, "region", cfg.Region)
+	actions.SetDeploymentTarget(cfg.DeploymentTarget)
+
+	logger = logger.With("target", cfg.TargetCluster, "deployment_target", cfg.DeploymentTarget, "region", cfg.Region)
 	logger.Info("starting zoa-lambda",
 		"handler_mode", cfg.HandlerMode,
 		"reconciler_deadline_s", cfg.ReconcilerDeadlineSeconds,
@@ -111,13 +114,14 @@ func main() {
 	}
 
 	exec := executor.New(kubeClient, restCfg, s3Client, &awsCfg, executor.ExecutorConfig{
-		ArtifactBucket:  cfg.ArtifactBucket,
-		UploaderRoleARN: cfg.UploaderRoleARN,
-		AWSReadRoleARN:  cfg.AWSReadRoleARN,
-		AWSWriteRoleARN: cfg.AWSWriteRoleARN,
-		KMSKeyARN:       cfg.KMSKeyARN,
-		Region:          cfg.Region,
-		JobImage:        cfg.JobImage,
+		ArtifactBucket:   cfg.ArtifactBucket,
+		UploaderRoleARN:  cfg.UploaderRoleARN,
+		AWSReadRoleARN:   cfg.AWSReadRoleARN,
+		AWSWriteRoleARN:  cfg.AWSWriteRoleARN,
+		KMSKeyARN:        cfg.KMSKeyARN,
+		Region:           cfg.Region,
+		JobImage:         cfg.JobImage,
+		DeploymentTarget: cfg.DeploymentTarget,
 	}, logger)
 
 	switch cfg.HandlerMode {

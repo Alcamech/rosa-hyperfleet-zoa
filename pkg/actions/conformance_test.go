@@ -28,7 +28,7 @@ func getTestEnvInt(key string, fallback int) int {
 // Any new TA that fails these checks will break the build, forcing the
 // author to fix their metadata, RBAC, or output contract before merge.
 func TestAllRegisteredActions_Conformance(t *testing.T) {
-	actions := List()
+	actions := ListCatalog()
 	if len(actions) == 0 {
 		t.Fatal("no actions registered — init() functions likely not running")
 	}
@@ -105,7 +105,7 @@ func TestAllRegisteredActions_Conformance(t *testing.T) {
 			// --- DryRunAction chain integrity ---
 
 			if meta.DryRunAction != "" {
-				dryAction, exists := Get(meta.DryRunAction)
+				dryAction, exists := GetCatalog(meta.DryRunAction)
 				if !exists {
 					t.Errorf("DryRunAction %q is not a registered action", meta.DryRunAction)
 				} else {
@@ -116,15 +116,28 @@ func TestAllRegisteredActions_Conformance(t *testing.T) {
 				}
 			}
 
-			// --- Timeout ceiling (derived from same env var as production) ---
+			// --- Timeout ceiling (sync TAs only; async TAs use K8s Job activeDeadlineSeconds) ---
 
-			ceiling := getTestEnvInt("EXECUTION_DEADLINE_SECONDS", 295)
-			if meta.TimeoutSeconds > ceiling {
-				t.Errorf("TimeoutSeconds=%d exceeds execution deadline ceiling (%ds). "+
-					"Increase Lambda timeout in Terraform (lambda_worker_timeout), "+
-					"set EXECUTION_DEADLINE_SECONDS env var, and update. "+
-					"See docs/architecture/timeout-tuning.md",
-					meta.TimeoutSeconds, ceiling)
+			if meta.ExecutionMode != "async" {
+				ceiling := getTestEnvInt("EXECUTION_DEADLINE_SECONDS", 295)
+				if meta.TimeoutSeconds > ceiling {
+					t.Errorf("TimeoutSeconds=%d exceeds execution deadline ceiling (%ds). "+
+						"Increase Lambda timeout in Terraform (lambda_worker_timeout), "+
+						"set EXECUTION_DEADLINE_SECONDS env var, and update. "+
+						"See docs/architecture/timeout-tuning.md",
+						meta.TimeoutSeconds, ceiling)
+				}
+			}
+
+			// --- Deployment target declaration ---
+
+			if len(meta.DeploymentTargets) == 0 {
+				t.Error("DeploymentTargets must declare at least rc and/or mc")
+			}
+			for _, target := range meta.DeploymentTargets {
+				if target != DeploymentTargetRC && target != DeploymentTargetMC {
+					t.Errorf("DeploymentTargets entry must be rc or mc, got %q", target)
+				}
 			}
 
 			// --- Parameters consistency ---
@@ -159,7 +172,7 @@ func TestAllRegisteredActions_HaveTestFile(t *testing.T) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	actionsDir := filepath.Dir(thisFile)
 
-	for _, action := range List() {
+	for _, action := range ListCatalog() {
 		meta := action.Metadata()
 		t.Run(meta.Name+"/has_test", func(t *testing.T) {
 			// Find test files that could contain tests for this TA

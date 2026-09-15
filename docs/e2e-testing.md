@@ -137,6 +137,30 @@ GINKGO_FLAGS=-ginkgo.v make test-e2e   # verbose output
 RC and MC run in **parallel** automatically (separate `go test` processes, one per target). Each
 process runs its specs sequentially. If you only set one URL, only that target runs.
 
+Each target carries a `DeploymentTarget` field (`"rc"` or `"mc"`) derived from which URL env var was set. Specs
+use this to pick the correct `--gather` value and expected tarball layout without hard-coding RC vs
+MC — so the same test file is safe under parallel execution (each process only sees one target).
+
+### `must_gather` platform dumps
+
+`ta_mustgather_test.go` exercises async platform collection on the endpoint under test:
+
+| Target | CLI | Tarball marker |
+| ------ | --- | -------------- |
+| RC | `--gather rc` | `rc/namespaces/platform-api/` |
+| MC | `--gather mc` | `mc/namespaces/kube-applier/` |
+
+The happy-path spec runs `must_gather --wait` (up to 20m), downloads `output.tar.gz` via
+`zoa download`, and asserts the deployment-specific namespace path exists while the opposite
+deployment tree (`mc/` or `rc/`) does not. HCP gather (`gather=hcp`) is covered separately later
+via `E2E_HCP_CLUSTER_ID` — not part of the default deep suite yet.
+
+Run only must_gather specs:
+
+```bash
+GINKGO_FLAGS='-ginkgo.focus=must_gather' make test-e2e
+```
+
 **Step 3 (optional) — Run only RC or only MC.**
 
 ```bash

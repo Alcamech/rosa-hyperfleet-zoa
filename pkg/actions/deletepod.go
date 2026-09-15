@@ -22,6 +22,7 @@ func (d *deletePod) Metadata() ActionMetadata {
 		ExecutionMode:        "sync",
 		Description:          "Delete a pod and wait for it to terminate. Refuses to delete standalone pods without owner references.",
 		Authorization:        AuthorizationConfig{Approval: "none"},
+		DeploymentTargets:    []string{DeploymentTargetRC, DeploymentTargetMC},
 		TimeoutSeconds:       60,
 		WriteCooldownSeconds: 60,
 		DryRunAction:         "get_resource",

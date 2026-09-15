@@ -156,6 +156,7 @@ func testConfig() *config.Config {
 	return &config.Config{
 		HandlerMode:                    "worker",
 		TargetCluster:                  "test-cluster",
+		DeploymentTarget:               "mc",
 		WorkerFunctionName:             "zoa-test-worker",
 		MaxBatchPerTick:                30,
 		ReconcilerDeadlineSeconds:      55,

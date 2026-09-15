@@ -23,13 +23,14 @@ type getResource struct{}
 
 func (g *getResource) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:           "get_resource",
-		Scope:          "kube-api",
-		Type:           "read",
-		ExecutionMode:  "sync",
-		Description:    "Get or list Kubernetes resources by type, namespace, name, or label/field selectors. Supports any resource including CRDs.",
-		Authorization:  AuthorizationConfig{Approval: "none"},
-		TimeoutSeconds: 60,
+		Name:              "get_resource",
+		Scope:             "kube-api",
+		Type:              "read",
+		ExecutionMode:     "sync",
+		Description:       "Get or list Kubernetes resources by type, namespace, name, or label/field selectors. Supports any resource including CRDs.",
+		Authorization:     AuthorizationConfig{Approval: "none"},
+		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
+		TimeoutSeconds:    60,
 		Parameters: []ParameterDef{
 			{Name: "resource", Required: true, Description: "Resource type (e.g. pods, deployments, hostedclusters, or any CRD)"},
 			{Name: "namespace", Description: "Target namespace (omit for cluster-scoped or use all_namespaces)"},

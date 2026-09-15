@@ -21,14 +21,15 @@ type listEKSClusters struct{}
 
 func (l *listEKSClusters) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:           "list_eks_clusters",
-		Scope:          "aws-api",
-		Type:           "read",
-		ExecutionMode:  "sync",
-		Description:    "List all EKS clusters in the configured AWS region.",
-		Authorization:  AuthorizationConfig{Approval: "none"},
-		TimeoutSeconds: 60,
-		Parameters:     []ParameterDef{},
+		Name:              "list_eks_clusters",
+		Scope:             "aws-api",
+		Type:              "read",
+		ExecutionMode:     "sync",
+		Description:       "List all EKS clusters in the configured AWS region.",
+		Authorization:     AuthorizationConfig{Approval: "none"},
+		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
+		TimeoutSeconds:    60,
+		Parameters:        []ParameterDef{},
 	}
 }
 
@@ -78,13 +79,14 @@ type describeEKSCluster struct{}
 
 func (d *describeEKSCluster) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:           "describe_eks_cluster",
-		Scope:          "aws-api",
-		Type:           "read",
-		ExecutionMode:  "sync",
-		Description:    "Describe a specific EKS cluster.",
-		Authorization:  AuthorizationConfig{Approval: "none"},
-		TimeoutSeconds: 60,
+		Name:              "describe_eks_cluster",
+		Scope:             "aws-api",
+		Type:              "read",
+		ExecutionMode:     "sync",
+		Description:       "Describe a specific EKS cluster.",
+		Authorization:     AuthorizationConfig{Approval: "none"},
+		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
+		TimeoutSeconds:    60,
 		Parameters: []ParameterDef{
 			{Name: "name", Required: true, Description: "EKS cluster name"},
 		},

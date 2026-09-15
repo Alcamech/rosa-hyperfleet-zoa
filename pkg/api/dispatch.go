@@ -108,6 +108,12 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		meta = action.Metadata()
 	}
 
+	if err := h.executor.ValidateAction(ctx, action, req.Params); err != nil {
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+		return
+	}
+
 	// Write cooldown check (prevents duplicate SRE requests at UX level)
 	// Cooldown is per (target, action, params) — different params means different target workload.
 	// - Dry-run executions don't trigger or count towards cooldown (no real mutation)
@@ -160,6 +166,12 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 			return
 		}
 		if req.ExecutionMode != meta.ExecutionMode {
+			if meta.DisallowExecutionModeOverride {
+				h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+				writeError(w, http.StatusBadRequest, "execution_mode_locked",
+					fmt.Sprintf("action %q requires execution_mode=%q and cannot be overridden", actionName, meta.ExecutionMode))
+				return
+			}
 			h.logger.Info("execution mode overridden",
 				"action", actionName,
 				"default", meta.ExecutionMode,

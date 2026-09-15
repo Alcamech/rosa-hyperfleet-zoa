@@ -134,7 +134,7 @@ func TestMyAction(t *testing.T) {
 ## Safety Guidelines
 
 1. **Secret data visibility** — by default show keys only; when `verbose=true`, show decoded (raw) values. The Go K8s client returns decoded data natively, so we expose it directly rather than re-encoding to base64
-2. **Block HCP namespaces** — reject operations on `clusters-*` namespaces for secrets
+2. **Block HCP namespaces** — reject operations on `cluster-*` namespaces for secrets
 3. **Require owner references** — refuse to delete standalone resources
 4. **Verify state before mutating** — check replicas > 0, resource exists, etc.
 5. **Return affected resources** — populate `ActionResult.AffectedResources` for audit

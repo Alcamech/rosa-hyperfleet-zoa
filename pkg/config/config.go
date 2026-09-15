@@ -17,6 +17,7 @@ type Config struct {
 	AuditTable             string
 	ArtifactBucket         string
 	TargetCluster          string
+	DeploymentTarget       string
 	Region                 string
 	JobImage               string
 	WriteCooldownSeconds   int
@@ -89,6 +90,7 @@ func Load() (*Config, error) {
 		AuditTable:                     getEnv("AUDIT_TABLE", ""),
 		ArtifactBucket:                 getEnv("ARTIFACT_BUCKET", ""),
 		TargetCluster:                  getEnv("TARGET_CLUSTER", ""),
+		DeploymentTarget:               getEnv("ZOA_DEPLOYMENT_TARGET", ""),
 		Region:                         getEnv("AWS_REGION", "us-east-1"),
 		JobImage:                       getEnv("JOB_IMAGE", ""),
 		WriteCooldownSeconds:           getEnvInt("WRITE_COOLDOWN_SECONDS", 300),
@@ -129,6 +131,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.EKSClusterName == "" {
 		return nil, fmt.Errorf("EKS_CLUSTER_NAME is required (used for EKS token generation)")
+	}
+	if cfg.DeploymentTarget == "" {
+		return nil, fmt.Errorf("ZOA_DEPLOYMENT_TARGET is required (rc or mc)")
+	}
+	if cfg.DeploymentTarget != "rc" && cfg.DeploymentTarget != "mc" {
+		return nil, fmt.Errorf("invalid ZOA_DEPLOYMENT_TARGET %q: must be rc or mc", cfg.DeploymentTarget)
 	}
 
 	if cfg.HandlerMode == "api" {

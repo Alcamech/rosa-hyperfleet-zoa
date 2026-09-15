@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
 )
 
@@ -240,5 +241,44 @@ func TestRunGC_WhenTerminalQueryFails_ItShouldReturnError(t *testing.T) {
 	err := r.RunGC(ctx)
 	if err == nil {
 		t.Fatal("expected error when GC phase fails")
+	}
+}
+
+func TestCleanupStaleMustGatherPods_WhenPodIsOld_ItShouldDelete(t *testing.T) {
+	kubeClient := fake.NewSimpleClientset() //nolint:staticcheck // NewClientset requires generated apply configs
+	ctx := context.Background()
+	cfg := testConfig()
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: cfg.JobsNamespace}}
+	_, _ = kubeClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "must-gather-stale",
+			Namespace: cfg.JobsNamespace,
+			Labels: map[string]string{
+				labels.KeyManagedBy:   labels.ValueManagedByZOA,
+				labels.KeyComponent:   labels.ComponentMustGather,
+				labels.KeyExecutionID: "stale-mg-1",
+			},
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodFailed},
+	}
+	_, _ = kubeClient.CoreV1().Pods(cfg.JobsNamespace).Create(ctx, pod, metav1.CreateOptions{})
+
+	exec := executor.New(kubeClient, nil, nil, nil, executor.ExecutorConfig{}, noopLogger())
+	r := NewReconciler(&mockExecutionStore{}, kubeClient, nil, exec, cfg, noopLogger())
+
+	if err := r.cleanupStaleMustGatherPods(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pods, err := kubeClient.CoreV1().Pods(cfg.JobsNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pods.Items) != 0 {
+		t.Fatalf("expected stale must-gather pod to be deleted, got %d pods", len(pods.Items))
 	}
 }

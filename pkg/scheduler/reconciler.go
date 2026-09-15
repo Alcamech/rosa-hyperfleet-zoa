@@ -59,6 +59,7 @@ func NewReconciler(executionStore store.ExecutionStore, kubeClient kubernetes.In
 // 3. Timeout: mark dispatched executions that exceeded their timeout
 // 4. GC: clean up K8s resources for terminal executions, mark cleaned
 // 5. Orphan GC: delete K8s resources that have no matching DynamoDB record
+// 6. Stale must-gather pods: delete terminal child pods missed by runner defer cleanup
 func (r *Reconciler) Run(ctx context.Context) error {
 	start := time.Now()
 	r.logger.Info("reconciler starting")
@@ -87,6 +88,11 @@ func (r *Reconciler) Run(ctx context.Context) error {
 
 	if err := r.orphanGC(ctx); err != nil {
 		r.logger.Error("orphan garbage collection failed", "error", err)
+		phaseErrors++
+	}
+
+	if err := r.cleanupStaleMustGatherPods(ctx); err != nil {
+		r.logger.Error("stale must-gather pod cleanup failed", "error", err)
 		phaseErrors++
 	}
 

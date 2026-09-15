@@ -13,6 +13,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("EKS_CLUSTER_CA", "LS0tLS1CRUdJTi...")
 	t.Setenv("EKS_CLUSTER_NAME", "eph-test-rc")
 	t.Setenv("TARGET_CLUSTER", "eph-test-rc")
+	t.Setenv("ZOA_DEPLOYMENT_TARGET", "rc")
 	t.Setenv("AUDIT_TABLE", "zoa-audit")
 	t.Setenv("UPLOADER_ROLE_ARN", "arn:aws:iam::123456:role/zoa-uploader")
 	t.Setenv("JOB_IMAGE", "123456.dkr.ecr.us-east-1.amazonaws.com/zoa-runner:latest")
@@ -161,6 +162,26 @@ func TestLoad_WhenWorkerMissingJobImage_ItShouldReturnError(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error when JOB_IMAGE is empty in worker mode")
+	}
+}
+
+func TestLoad_WhenMissingDeploymentTarget_ItShouldReturnError(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("ZOA_DEPLOYMENT_TARGET", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when ZOA_DEPLOYMENT_TARGET is empty")
+	}
+}
+
+func TestLoad_WhenInvalidDeploymentTarget_ItShouldReturnError(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("ZOA_DEPLOYMENT_TARGET", "hcp")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid ZOA_DEPLOYMENT_TARGET")
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 )
 
 func init() {
@@ -13,8 +15,7 @@ func init() {
 }
 
 var blockedNamespacePrefixes = []string{
-	"clusters-",
-	"ocm-",
+	labels.ClusterNamespacePrefix,
 }
 
 var blockedSecretNamePatterns = []string{
@@ -28,13 +29,14 @@ type getSecretAction struct{}
 
 func (a *getSecretAction) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:           "get_secret",
-		Scope:          "kube-api",
-		Type:           "read",
-		ExecutionMode:  "sync",
-		Description:    "Get Kubernetes secrets with HCP namespace protection. Shows secret metadata and data keys by default; use verbose for base64 values.",
-		Authorization:  AuthorizationConfig{Approval: "none"},
-		TimeoutSeconds: 60,
+		Name:              "get_secret",
+		Scope:             "kube-api",
+		Type:              "read",
+		ExecutionMode:     "sync",
+		Description:       "Get Kubernetes secrets with HCP namespace protection. Shows secret metadata and data keys by default; use verbose for base64 values.",
+		Authorization:     AuthorizationConfig{Approval: "none"},
+		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
+		TimeoutSeconds:    60,
 		Parameters: []ParameterDef{
 			{Name: "namespace", Required: true, Description: "Target namespace (HCP namespaces blocked)"},
 			{Name: "name", Required: false, Description: "Secret name (omit to list all secrets in namespace)"},

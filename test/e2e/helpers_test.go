@@ -3,13 +3,19 @@
 package e2e
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	. "github.com/onsi/gomega" //nolint:staticcheck // dot-import is the Gomega/Ginkgo convention
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
 )
 
 // target is one ZOA Lambda deployment (RC or MC) under test. RC and MC are
@@ -17,9 +23,10 @@ import (
 // its Lambda Function URL, so every subprocess call must be scoped to the
 // right AWS_PROFILE for the target it's actually talking to.
 type target struct {
-	Name       string // "rc" or "mc"
-	APIURL     string
-	AWSProfile string
+	Name             string // human-readable label for Describe()
+	DeploymentTarget string // "rc" or "mc" — matches ZOA_DEPLOYMENT_TARGET and gather= values
+	APIURL           string
+	AWSProfile       string
 }
 
 var (
@@ -51,10 +58,10 @@ func envOrDefault(key, def string) string {
 func discoverTargets() []target {
 	var out []target
 	if url := os.Getenv("ZOA_RC_API_URL"); url != "" {
-		out = append(out, target{Name: "RC (Regional Cluster)", APIURL: url, AWSProfile: envOrDefault("ZOA_RC_AWS_PROFILE", "rrp-rc")})
+		out = append(out, target{Name: "RC (Regional Cluster)", DeploymentTarget: "rc", APIURL: url, AWSProfile: envOrDefault("ZOA_RC_AWS_PROFILE", "rrp-rc")})
 	}
 	if url := os.Getenv("ZOA_MC_API_URL"); url != "" {
-		out = append(out, target{Name: "MC (Management Cluster)", APIURL: url, AWSProfile: envOrDefault("ZOA_MC_AWS_PROFILE", "rrp-mc")})
+		out = append(out, target{Name: "MC (Management Cluster)", DeploymentTarget: "mc", APIURL: url, AWSProfile: envOrDefault("ZOA_MC_AWS_PROFILE", "rrp-mc")})
 	}
 	return out
 }
@@ -252,4 +259,136 @@ func caseInsensitiveField(row map[string]interface{}, key string) (string, bool)
 		}
 	}
 	return "", false
+}
+
+// expectedActionsForDeployment returns TA names that should be registered on a
+// Lambda with ZOA_DEPLOYMENT_TARGET=deploymentTarget, derived from pkg/actions metadata
+// (same DeploymentTargets filtering the server applies at startup).
+func expectedActionsForDeployment(deploymentTarget string) []string {
+	var names []string
+	for _, a := range actions.ListCatalog() {
+		meta := a.Metadata()
+		for _, t := range meta.DeploymentTargets {
+			if t == deploymentTarget {
+				names = append(names, meta.Name)
+				break
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// liveActionNames queries a target's Lambda for registered TA names (already
+// filtered to that endpoint's deployment target).
+func liveActionNames(tgt target) []string {
+	out, err := runZoa(tgt, "actions", "-o", "json")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), out)
+
+	jsonStr := extractJSON(out)
+	var list struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	ExpectWithOffset(1, json.Unmarshal([]byte(jsonStr), &list)).To(Succeed(), out)
+
+	names := make([]string, 0, len(list.Items))
+	for _, a := range list.Items {
+		names = append(names, a.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// liveActionScopes returns name→scope for TAs registered on the given endpoint.
+func liveActionScopes(tgt target) map[string]string {
+	out, err := runZoa(tgt, "actions", "-o", "json")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), out)
+
+	jsonStr := extractJSON(out)
+	var list struct {
+		Items []struct {
+			Name  string `json:"name"`
+			Scope string `json:"scope"`
+		} `json:"items"`
+	}
+	ExpectWithOffset(1, json.Unmarshal([]byte(jsonStr), &list)).To(Succeed(), out)
+
+	scopes := make(map[string]string, len(list.Items))
+	for _, a := range list.Items {
+		scopes[a.Name] = a.Scope
+	}
+	return scopes
+}
+
+// downloadExecutionOutput saves the execution's primary output artifact via `zoa download`.
+func downloadExecutionOutput(tgt target, executionID, destFile string) error {
+	out, err := runZoa(tgt, "download", executionID, "-f", destFile)
+	if err != nil {
+		return fmt.Errorf("[%s] zoa download %s: %w:\n%s", tgt.Name, executionID, err, out)
+	}
+	return nil
+}
+
+// tarballContainsPrefix reports whether any path inside a .tar.gz archive has the
+// given prefix (slash-normalized, e.g. "mc/namespaces/kube-applier/").
+func tarballContainsPrefix(tarGzPath, prefix string) (bool, error) {
+	prefix = filepath.ToSlash(prefix)
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	f, err := os.Open(tarGzPath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return false, err
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		name := filepath.ToSlash(hdr.Name)
+		if strings.HasPrefix(name, prefix) {
+			return true, nil
+		}
+	}
+}
+
+// mustGatherPlatformNamespace returns a namespace path marker inside the must_gather
+// tarball that is unique to MC vs RC platform dumps.
+func mustGatherPlatformNamespace(deploymentTarget string) string {
+	switch deploymentTarget {
+	case "mc":
+		return "mc/namespaces/kube-applier/"
+	case "rc":
+		return "rc/namespaces/platform-api/"
+	default:
+		return ""
+	}
+}
+
+// mustGatherOppositePlatformPrefix returns the top-level gather dir for the other
+// deployment (should be absent when gather matches this endpoint only).
+func mustGatherOppositePlatformPrefix(deploymentTarget string) string {
+	switch deploymentTarget {
+	case "mc":
+		return "rc/"
+	case "rc":
+		return "mc/"
+	default:
+		return ""
+	}
 }

@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,80 +12,58 @@ import (
 )
 
 // E2E conformance — dynamically ensures every Trusted Action reported by
-// the live Lambda has e2e coverage. No hardcoded TA lists to maintain.
+// each live Lambda has e2e coverage. RC and MC registries differ when a TA
+// declares DeploymentTargets for only one endpoint.
 
 var _ = Describe("e2e conformance", func() {
-	// liveActions queries a target's Lambda for the full TA inventory.
-	// Uses the first available target (RC or MC — the registry is identical).
-	liveActions := func() []string {
-		Expect(targets).NotTo(BeEmpty(), "no targets configured")
-		tgt := targets[0]
-
-		out, err := runZoa(tgt, "actions", "-o", "json")
-		Expect(err).NotTo(HaveOccurred(), out)
-
-		jsonStr := extractJSON(out)
-		var list struct {
-			Items []struct {
-				Name string `json:"name"`
-			} `json:"items"`
-		}
-		Expect(json.Unmarshal([]byte(jsonStr), &list)).To(Succeed(), out)
-
-		names := make([]string, 0, len(list.Items))
-		for _, a := range list.Items {
-			names = append(names, a.Name)
-		}
-		return names
-	}
-
-	It("every registered TA has a ta_* e2e test file", func() {
+	taTestFileContents := func() map[string]string {
 		testDir := "."
 		if _, err := os.Stat("test/e2e"); err == nil {
 			testDir = "test/e2e"
 		}
 
-		taFiles, _ := filepath.Glob(filepath.Join(testDir, "ta_*_test.go"))
-		taFileContents := make(map[string]string, len(taFiles))
+		taFiles, err := filepath.Glob(filepath.Join(testDir, "ta_*_test.go"))
+		Expect(err).NotTo(HaveOccurred())
+
+		contents := make(map[string]string, len(taFiles))
 		for _, f := range taFiles {
-			data, _ := os.ReadFile(f)
-			taFileContents[filepath.Base(f)] = string(data)
+			data, readErr := os.ReadFile(f)
+			Expect(readErr).NotTo(HaveOccurred(), f)
+			contents[filepath.Base(f)] = string(data)
 		}
+		return contents
+	}
 
-		for _, ta := range liveActions() {
-			found := false
-			for file, content := range taFileContents {
-				if strings.Contains(content, ta) {
-					found = true
-					_ = file
-					break
+	for _, tgt := range targets {
+		tgt := tgt
+
+		Describe(tgt.Name, func() {
+			It("every registered TA has a ta_* e2e test file", func() {
+				taFileContents := taTestFileContents()
+
+				for _, ta := range liveActionNames(tgt) {
+					found := false
+					for _, content := range taFileContents {
+						if strings.Contains(content, ta) {
+							found = true
+							break
+						}
+					}
+					Expect(found).To(BeTrue(),
+						"TA %q is registered on %s Lambda but has no ta_*_test.go e2e coverage — "+
+							"add a test file or add the TA name to an existing ta_* file", ta, tgt.DeploymentTarget)
 				}
-			}
-			Expect(found).To(BeTrue(),
-				"TA %q is registered in the Lambda but has no ta_*_test.go e2e coverage — "+
-					"add a test file or add the TA name to an existing ta_* file", ta)
-		}
-	})
+			})
 
-	It("knownActions list matches the live Lambda registry", func() {
-		live := liveActions()
-
-		for _, want := range knownActions {
-			Expect(live).To(ContainElement(want),
-				"knownActions has %q but it's not in the live registry — remove it from cmd_actions_test.go", want)
-		}
-		for _, got := range live {
-			found := false
-			for _, known := range knownActions {
-				if known == got {
-					found = true
-					break
-				}
-			}
-			Expect(found).To(BeTrue(),
-				"TA %q is live but not in knownActions — add it to cmd_actions_test.go", got)
-		}
-	})
+			It("live registry matches DeploymentTargets for this endpoint", func() {
+				live := liveActionNames(tgt)
+				want := expectedActionsForDeployment(tgt.DeploymentTarget)
+				Expect(live).To(Equal(want),
+					"live registry on %s (%s) should match pkg/actions DeploymentTargets — "+
+						"deployed Lambda may be stale or metadata drifted", tgt.Name, tgt.DeploymentTarget)
+			})
+		})
+	}
 
 	It("smoke tests cover both kube-api and aws-api scopes", func() {
 		testDir := "."
@@ -94,33 +71,23 @@ var _ = Describe("e2e conformance", func() {
 			testDir = "test/e2e"
 		}
 
-		// Query live scopes for each TA
-		Expect(targets).NotTo(BeEmpty())
-		tgt := targets[0]
-
-		out, err := runZoa(tgt, "actions", "-o", "json")
-		Expect(err).NotTo(HaveOccurred(), out)
-
-		jsonStr := extractJSON(out)
-		var list struct {
-			Items []struct {
-				Name  string `json:"name"`
-				Scope string `json:"scope"`
-			} `json:"items"`
-		}
-		Expect(json.Unmarshal([]byte(jsonStr), &list)).To(Succeed(), out)
-
-		taScope := make(map[string]string, len(list.Items))
-		for _, a := range list.Items {
-			taScope[a.Name] = a.Scope
+		// Union scopes across all configured targets (RC-only / MC-only TAs may
+		// split scopes between endpoints).
+		taScope := make(map[string]string)
+		for _, tgt := range targets {
+			for name, scope := range liveActionScopes(tgt) {
+				taScope[name] = scope
+			}
 		}
 
 		hasKubeAPISmoke := false
 		hasAWSAPISmoke := false
 
-		taFiles, _ := filepath.Glob(filepath.Join(testDir, "ta_*_test.go"))
+		taFiles, err := filepath.Glob(filepath.Join(testDir, "ta_*_test.go"))
+		Expect(err).NotTo(HaveOccurred())
 		for _, f := range taFiles {
-			data, _ := os.ReadFile(f)
+			data, readErr := os.ReadFile(f)
+			Expect(readErr).NotTo(HaveOccurred(), f)
 			content := string(data)
 			if !strings.Contains(content, `Label("smoke")`) {
 				continue

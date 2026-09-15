@@ -2,15 +2,42 @@ package executor
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 
 	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
 )
+
+func TestValidateAction_WhenMustGatherGatherInvalidForDeployment_ItShouldFail(t *testing.T) {
+	actions.SetDeploymentTarget("mc")
+	t.Cleanup(func() { actions.SetDeploymentTarget("") })
+
+	action, ok := actions.Get("must_gather")
+	if !ok {
+		t.Fatal("must_gather not registered")
+	}
+
+	e := &Executor{
+		kubeClient:       fake.NewClientset(),
+		restConfig:       &rest.Config{Host: "https://localhost:6443"},
+		deploymentTarget: "mc",
+		logger:           noopLogger(),
+	}
+
+	err := e.ValidateAction(context.Background(), action, map[string]string{"gather": "rc"})
+	if err == nil {
+		t.Fatal("expected validation error for gather=rc on mc endpoint")
+	}
+	if !strings.Contains(err.Error(), "not allowed on mc ZOA endpoint") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
 
 func TestEnsureNamespace_WhenNamespaceDoesNotExist_ItShouldCreateIt(t *testing.T) {
 	client := fake.NewSimpleClientset() //nolint:staticcheck // NewClientset requires generated apply configs
