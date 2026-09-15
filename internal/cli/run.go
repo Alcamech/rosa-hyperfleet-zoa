@@ -258,7 +258,7 @@ func printRunResult(ctx context.Context, global *GlobalOptions, exec *client.Exe
 		if global.OutputFormat == output.FormatJSON {
 			return output.JSON(os.Stdout, exec)
 		}
-		if isDownloadHint(exec.Output.String()) {
+		if hasDownloadableArtifact(exec) {
 			c, err := getClient(global)
 			if err != nil {
 				return err

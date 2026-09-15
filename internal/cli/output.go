@@ -43,7 +43,7 @@ func showOutput(ctx context.Context, global *GlobalOptions, id string) error {
 		return nil
 	}
 
-	if isDownloadHint(exec.Output.String()) {
+	if hasDownloadableArtifact(exec) {
 		outPath, nbytes, dlErr := autoDownloadOutput(ctx, c, id)
 		if dlErr != nil {
 			return fmt.Errorf("auto-download failed: %w (use 'zoa download %s' manually)", dlErr, id)

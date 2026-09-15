@@ -57,7 +57,14 @@ func mustGatherTestLogger() *slog.Logger {
 
 func TestRedactSecretData_ItShouldStripDataFields(t *testing.T) {
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "pull-secret", Namespace: "cert-manager"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: "cert-manager",
+			Annotations: map[string]string{
+				corev1.LastAppliedConfigAnnotation: `{"data":{"token":"c2VjcmV0LXZhbHVl"}}`,
+				"other-annotation":                 "keep-me",
+			},
+		},
 		Type:       corev1.SecretTypeOpaque,
 		Data:       map[string][]byte{"token": []byte("secret-value")},
 		StringData: map[string]string{"other": "also-secret"},
@@ -70,11 +77,20 @@ func TestRedactSecretData_ItShouldStripDataFields(t *testing.T) {
 	if len(redacted.StringData) != 0 {
 		t.Fatal("expected stringData to be stripped")
 	}
+	if _, ok := redacted.Annotations[corev1.LastAppliedConfigAnnotation]; ok {
+		t.Fatal("expected last-applied-configuration annotation to be stripped")
+	}
+	if redacted.Annotations["other-annotation"] != "keep-me" {
+		t.Fatal("expected non-sensitive annotations to be preserved")
+	}
 	if redacted.Name != "pull-secret" {
 		t.Fatalf("expected metadata preserved, got name %q", redacted.Name)
 	}
 	if len(secret.Data) != 1 {
 		t.Fatal("redactSecretData should not mutate the original secret")
+	}
+	if _, ok := secret.Annotations[corev1.LastAppliedConfigAnnotation]; !ok {
+		t.Fatal("redactSecretData should not mutate the original secret annotations")
 	}
 }
 
@@ -554,17 +570,6 @@ func TestMustGatherCreateTarball(t *testing.T) {
 	})
 }
 
-func TestHCPLogsDumpDir(t *testing.T) {
-	t.Run("When control plane namespace provided it should use osdctl hcp-logs-dump prefix", func(t *testing.T) {
-		hcpDir := filepath.Join(t.TempDir(), "hcp")
-		dump := hcpLogsDumpDir(hcpDir, "cluster-abc-sergio")
-		want := filepath.Join(hcpDir, "hcp-logs-dump-cluster-abc-sergio")
-		if dump != want {
-			t.Fatalf("unexpected log dump dir: %s", dump)
-		}
-	})
-}
-
 func TestMustGatherExtractTarGz(t *testing.T) {
 	t.Run("When extracting tarball it should recreate directory structure", func(t *testing.T) {
 		root := t.TempDir()
@@ -752,13 +757,18 @@ func TestMustGatherExecuteSkipImage(t *testing.T) {
 			t.Error("expected output.tar.gz to be created")
 		}
 
-		podLog := filepath.Join(tmpDir, "hcp", "hcp-logs-dump-cluster-test-abc-my-hc", "cluster-test-abc-my-hc", "pods", "apiserver", "pod.yaml")
-		if _, err := os.Stat(podLog); os.IsNotExist(err) {
-			t.Errorf("expected hcp log dump pod.yaml at %s", podLog)
+		// When image is skipped, collectDirectDiagnostics should collect CP namespace
+		// under hcp/namespaces/<cpns>/ (richer than the old hcp-logs-dump path).
+		podYAML := filepath.Join(tmpDir, "hcp", "namespaces", "cluster-test-abc-my-hc", "pods", "apiserver", "pod.yaml")
+		if _, err := os.Stat(podYAML); os.IsNotExist(err) {
+			t.Errorf("expected pod.yaml at %s", podYAML)
 		}
-		depEvents := filepath.Join(tmpDir, "hcp", "hcp-logs-dump-cluster-test-abc-my-hc", "cluster-test-abc-my-hc", "events", "kube-apiserver", "events.log")
-		if _, err := os.Stat(depEvents); os.IsNotExist(err) {
-			t.Errorf("expected deployment events.log at %s", depEvents)
+		// Supplement platform namespaces should also be present
+		for _, ns := range []string{"hypershift", "cert-manager", "kube-applier"} {
+			nsDir := filepath.Join(tmpDir, "hcp", "namespaces", ns)
+			if _, err := os.Stat(nsDir); os.IsNotExist(err) {
+				t.Errorf("expected supplement namespace dir %s", nsDir)
+			}
 		}
 		if _, err := os.Stat(filepath.Join(tmpDir, "hcp", "controlplane-my-hc")); !os.IsNotExist(err) {
 			t.Error("expected no controlplane direct dump when gather image skipped")
@@ -1055,94 +1065,6 @@ func TestScanGatherLogIssues(t *testing.T) {
 		}
 		if len(samples) != 1 || !strings.Contains(samples[0], "forbidden") {
 			t.Fatalf("unexpected samples: %v", samples)
-		}
-	})
-}
-
-func TestCollectHCPLogsDumpPods(t *testing.T) {
-	t.Run("When pods exist it should write merged pod.log and pod.yaml", func(t *testing.T) {
-		client := fake.NewClientset(
-			&corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Name: "etcd-0", Namespace: "hcp-ns"},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: "etcd", Image: "etcd:latest"}},
-				},
-			},
-		)
-		tmpDir := t.TempDir()
-		nsDir := filepath.Join(tmpDir, "hcp-ns")
-		action := &mustGather{}
-		action.collectHCPLogsDumpPods(context.Background(), &ExecutionParams{
-			KubeClient: client,
-			Logger:     mustGatherTestLogger(),
-		}, "hcp-ns", nsDir)
-
-		podYAML := filepath.Join(nsDir, "pods", "etcd-0", "pod.yaml")
-		if _, err := os.Stat(podYAML); os.IsNotExist(err) {
-			t.Fatalf("expected pod.yaml at %s", podYAML)
-		}
-	})
-}
-
-func TestCollectHCPLogsDumpDeploymentEvents(t *testing.T) {
-	t.Run("When deployment events exist it should split them per deployment", func(t *testing.T) {
-		client := fake.NewClientset(
-			&appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: "kas", Namespace: "hcp-ns"},
-			},
-			&corev1.Event{
-				ObjectMeta:     metav1.ObjectMeta{Name: "evt-1", Namespace: "hcp-ns"},
-				InvolvedObject: corev1.ObjectReference{Kind: "Deployment", Name: "kas", Namespace: "hcp-ns"},
-				Type:           corev1.EventTypeNormal,
-				Reason:         "ScalingReplicaSet",
-				Message:        "scaled",
-			},
-		)
-		tmpDir := t.TempDir()
-		nsDir := filepath.Join(tmpDir, "hcp-ns")
-		action := &mustGather{}
-		action.collectHCPLogsDumpDeploymentEvents(context.Background(), &ExecutionParams{
-			KubeClient: client,
-			Logger:     mustGatherTestLogger(),
-		}, "hcp-ns", nsDir)
-
-		eventsLog := filepath.Join(nsDir, "events", "kas", "events.log")
-		data, err := os.ReadFile(eventsLog)
-		if err != nil {
-			t.Fatalf("expected events.log: %v", err)
-		}
-		if !strings.Contains(string(data), "ScalingReplicaSet") {
-			t.Fatalf("expected deployment event in log, got %q", string(data))
-		}
-		deploymentYAML := filepath.Join(nsDir, "events", "kas", "deployment.yaml")
-		if _, err := os.Stat(deploymentYAML); os.IsNotExist(err) {
-			t.Fatal("expected deployment.yaml beside events.log")
-		}
-	})
-}
-
-func TestResolveHCPLogNamespaces(t *testing.T) {
-	t.Run("When cluster identity provided it should return HF hcp log namespaces", func(t *testing.T) {
-		id := clusterIdentity{
-			HCNamespace:       "cluster-abc",
-			HostedClusterName: "demo",
-			CPNamespace:       "cluster-abc-demo",
-		}
-		ns := resolveHCPLogNamespaces(id, []string{"monitoring"})
-		if len(ns) != 6 {
-			t.Fatalf("expected 6 namespaces, got %d: %v", len(ns), ns)
-		}
-		for _, want := range []string{"cluster-abc-demo", "cluster-abc", "hypershift", "cert-manager", "kube-applier", "monitoring"} {
-			found := false
-			for _, n := range ns {
-				if n == want {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("expected %q in %v", want, ns)
-			}
 		}
 	})
 }

@@ -14,19 +14,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
-	"sigs.k8s.io/yaml"
-
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
 )
 
 const (
@@ -57,10 +56,11 @@ var validGatherTargets = map[string]struct{}{
 	"rc":  {},
 }
 
-// hcpLogSupplementPlatformNamespaces are MC platform namespaces collected in the hcp
-// log supplement (osdctl DT-substitute path). HyperFleet replaces ACM klusterlet/OCM
-// agent namespaces with kube-applier on the hosting MC.
-var hcpLogSupplementPlatformNamespaces = []string{
+// hcpSupplementPlatformNamespaces are MC platform namespaces relevant to HCP
+// diagnostics that the gather image (hypershift dump cluster) doesn't cover.
+// Collected under hcp/ when gather=hcp without mc; when mc is also requested
+// these namespaces are already covered by collectDirectDiagnostics in the mc branch.
+var hcpSupplementPlatformNamespaces = []string{
 	"hypershift",
 	"cert-manager",
 	"kube-applier",
@@ -235,7 +235,28 @@ func (m *mustGather) Execute(ctx context.Context, params *ExecutionParams) (*Act
 				params.Logger.Warn("gather image collection failed", "error", gatherImageErr)
 			}
 		}
-		m.collectHCPLogsDump(ctx, params, id, extraNamespaces, hcpDir)
+
+		// Direct diagnostics for HCP-relevant namespaces not covered by the gather image.
+		// Platform namespaces (hypershift, cert-manager, kube-applier) are skipped when mc
+		// is also requested — the mc branch covers them via mcPlatformNamespaces.
+		var hcpDirectNS []string
+		if !gatherIncludes(targets, "mc") {
+			hcpDirectNS = append(hcpDirectNS, hcpSupplementPlatformNamespaces...)
+		}
+		// When the image was skipped or failed, also collect CPNamespace and HCNamespace
+		// directly (the image normally provides logs for these via hypershift dump cluster).
+		if skipImage || gatherImageErr != nil {
+			if id.CPNamespace != "" {
+				hcpDirectNS = append(hcpDirectNS, id.CPNamespace)
+			}
+			if id.HCNamespace != "" {
+				hcpDirectNS = append(hcpDirectNS, id.HCNamespace)
+			}
+		}
+		hcpDirectNS = mappendUniqueNamespaces(hcpDirectNS, extraNamespaces)
+		if len(hcpDirectNS) > 0 {
+			m.collectDirectDiagnostics(ctx, params, hcpDirectNS, hcpDir)
+		}
 	}
 
 	targetNamespaces := m.resolveCollectionNamespaces(targets, id, extraNamespaces)
@@ -533,45 +554,53 @@ func (m *mustGather) copyFromPod(ctx context.Context, params *ExecutionParams, n
 	params.Logger.Info("copying data from must-gather pod", "src", srcPath, "dst", dstPath)
 
 	tarCmd := []string{"tar", "czf", "-", "-C", srcPath, "."}
-	stdout, _, err := m.execInPodRaw(ctx, params, namespace, podName, mustGatherHoldContainer, tarCmd)
-	if err != nil {
-		return fmt.Errorf("exec tar in pod: %w", err)
-	}
 
-	return extractTarGz(bytes.NewReader(stdout), dstPath)
-}
+	// Stream the tarball directly from the pod to disk via io.Pipe to avoid
+	// buffering the entire archive in memory (can exceed Lambda 512MB limit).
+	pr, pw := io.Pipe()
 
-func (m *mustGather) execInPodRaw(ctx context.Context, params *ExecutionParams, namespace, podName, container string, command []string) ([]byte, []byte, error) {
 	req := params.KubeClient.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
 		Namespace(namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   command,
+			Container: mustGatherHoldContainer,
+			Command:   tarCmd,
 			Stdout:    true,
 			Stderr:    true,
 		}, scheme.ParameterCodec)
 
 	exec, err := remotecommand.NewSPDYExecutor(params.RESTConfig, "POST", req.URL())
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating SPDY executor: %w", err)
+		pw.Close()
+		pr.Close()
+		return fmt.Errorf("creating SPDY executor: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
 	execCtx, cancel := context.WithTimeout(ctx, execCopyTimeout)
-	defer cancel()
 
-	err = exec.StreamWithContext(execCtx, remotecommand.StreamOptions{
-		Stdout: &stdout,
-		Stderr: &stderr,
-	})
-	if err != nil {
-		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("stream exec: %w (stderr: %s)", err, stderr.String())
+	var execErr error
+	var stderr bytes.Buffer
+	go func() {
+		defer cancel()
+		defer pw.Close()
+		execErr = exec.StreamWithContext(execCtx, remotecommand.StreamOptions{
+			Stdout: pw,
+			Stderr: &stderr,
+		})
+		if execErr != nil {
+			pw.CloseWithError(fmt.Errorf("stream exec: %w (stderr: %s)", execErr, stderr.String()))
+		}
+	}()
+
+	extractErr := extractTarGz(pr, dstPath)
+	pr.Close()
+
+	if execErr != nil {
+		return fmt.Errorf("exec tar in pod: %w (stderr: %s)", execErr, stderr.String())
 	}
-
-	return stdout.Bytes(), stderr.Bytes(), nil
+	return extractErr
 }
 
 func parseGatherTargets(raw string) ([]string, error) {
@@ -709,7 +738,7 @@ func (m *mustGather) resolveCollectionNamespaces(targets []string, id clusterIde
 	if gatherIncludes(targets, "hcp") && id.HCNamespace != "" {
 		add(id.HCNamespace)
 		add(id.CPNamespace)
-		for _, ns := range hcpLogSupplementPlatformNamespaces {
+		for _, ns := range hcpSupplementPlatformNamespaces {
 			add(ns)
 		}
 	}
@@ -729,22 +758,7 @@ func (m *mustGather) resolveCollectionNamespaces(targets []string, id clusterIde
 	return out
 }
 
-func hcpLogsDumpDir(hcpDir, cpNamespace string) string {
-	return filepath.Join(hcpDir, fmt.Sprintf("hcp-logs-dump-%s", cpNamespace))
-}
-
-func resolveHCPLogNamespaces(id clusterIdentity, extra []string) []string {
-	var base []string
-	if id.CPNamespace != "" {
-		base = append(base, id.CPNamespace)
-	}
-	if id.HCNamespace != "" {
-		base = append(base, id.HCNamespace)
-	}
-	base = append(base, hcpLogSupplementPlatformNamespaces...)
-	return mappendUniqueNamespaces(base, extra)
-}
-
+// mappendUniqueNamespaces deduplicates and merges extra namespaces into base.
 func mappendUniqueNamespaces(base, extra []string) []string {
 	seen := make(map[string]struct{}, len(base)+len(extra))
 	var out []string
@@ -768,233 +782,6 @@ func mappendUniqueNamespaces(base, extra []string) []string {
 	return out
 }
 
-// collectHCPLogsDump writes osdctl DT-substitute logs under hcp/hcp-logs-dump-<cp-ns>/.
-func (m *mustGather) collectHCPLogsDump(ctx context.Context, params *ExecutionParams, id clusterIdentity, extra []string, hcpDir string) {
-	if id.CPNamespace == "" {
-		params.Logger.Warn("skipping hcp log supplement: control plane namespace unknown")
-		return
-	}
-
-	dumpDir := hcpLogsDumpDir(hcpDir, id.CPNamespace)
-	namespaces := resolveHCPLogNamespaces(id, extra)
-	params.Logger.Info("collecting hcp log supplement", "dest", dumpDir, "namespaces", namespaces)
-
-	for _, ns := range namespaces {
-		nsDir := filepath.Join(dumpDir, ns)
-		if err := os.MkdirAll(nsDir, 0o755); err != nil {
-			params.Logger.Warn("failed to create log dump namespace dir", "namespace", ns, "error", err)
-			continue
-		}
-		m.collectHCPLogsDumpPods(ctx, params, ns, nsDir)
-		m.collectHCPLogsDumpDeploymentEvents(ctx, params, ns, nsDir)
-	}
-}
-
-func (m *mustGather) collectHCPLogsDumpPods(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	podsDir := filepath.Join(nsDir, "pods")
-	pods, err := params.KubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		params.Logger.Warn("failed to list pods for hcp log dump", "namespace", namespace, "error", err)
-		return
-	}
-
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		podDir := filepath.Join(podsDir, pod.Name)
-		if err := os.MkdirAll(podDir, 0o755); err != nil {
-			continue
-		}
-
-		podYAML, err := yaml.Marshal(pod)
-		if err == nil {
-			_ = os.WriteFile(filepath.Join(podDir, "pod.yaml"), podYAML, 0o644)
-		}
-
-		var logBuf bytes.Buffer
-		for _, container := range pod.Spec.InitContainers {
-			m.appendMergedContainerLogs(ctx, params, namespace, pod.Name, container.Name, &logBuf)
-		}
-		for _, container := range pod.Spec.Containers {
-			m.appendMergedContainerLogs(ctx, params, namespace, pod.Name, container.Name, &logBuf)
-		}
-		if logBuf.Len() > 0 {
-			_ = os.WriteFile(filepath.Join(podDir, "pod.log"), logBuf.Bytes(), 0o644)
-		}
-	}
-}
-
-func (m *mustGather) appendMergedContainerLogs(ctx context.Context, params *ExecutionParams, namespace, podName, containerName string, buf *bytes.Buffer) {
-	prev, errPrev := m.readContainerLogBytes(ctx, params, namespace, podName, containerName, true)
-	curr, errCurr := m.readContainerLogBytes(ctx, params, namespace, podName, containerName, false)
-	if len(prev) == 0 && len(curr) == 0 {
-		if errPrev != nil || errCurr != nil {
-			params.Logger.Debug("no logs for container", "pod", podName, "container", containerName)
-		}
-		return
-	}
-
-	if buf.Len() > 0 {
-		buf.WriteString("\n")
-	}
-	fmt.Fprintf(buf, "--- %s/%s ---\n", podName, containerName)
-	if len(prev) > 0 {
-		buf.WriteString("--- previous ---\n")
-		buf.Write(prev)
-		if !bytes.HasSuffix(prev, []byte("\n")) {
-			buf.WriteByte('\n')
-		}
-	}
-	if len(curr) > 0 {
-		buf.WriteString("--- current ---\n")
-		buf.Write(curr)
-		if !bytes.HasSuffix(curr, []byte("\n")) {
-			buf.WriteByte('\n')
-		}
-	}
-}
-
-func (m *mustGather) readContainerLogBytes(ctx context.Context, params *ExecutionParams, namespace, podName, containerName string, previous bool) ([]byte, error) {
-	opts := &corev1.PodLogOptions{
-		Container: containerName,
-		Previous:  previous,
-	}
-	req := params.KubeClient.CoreV1().Pods(namespace).GetLogs(podName, opts)
-	stream, err := req.Stream(ctx)
-	if err != nil {
-		if errors.IsNotFound(err) || strings.Contains(err.Error(), "previous terminated") {
-			return nil, err
-		}
-		return nil, err
-	}
-	defer stream.Close()
-
-	data, err := io.ReadAll(stream)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-type deploymentRelatedNames struct {
-	replicaSets map[string]struct{}
-	pods        map[string]struct{}
-}
-
-func (m *mustGather) collectHCPLogsDumpDeploymentEvents(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	deployments, err := params.KubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		params.Logger.Warn("failed to list deployments for hcp log dump", "namespace", namespace, "error", err)
-		return
-	}
-
-	events, err := params.KubeClient.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		params.Logger.Warn("failed to list events for hcp log dump", "namespace", namespace, "error", err)
-		return
-	}
-
-	related := buildDeploymentRelatedNames(deployments.Items, params.KubeClient, ctx, namespace)
-
-	for i := range deployments.Items {
-		dep := &deployments.Items[i]
-		depDir := filepath.Join(nsDir, "events", dep.Name)
-		if err := os.MkdirAll(depDir, 0o755); err != nil {
-			continue
-		}
-
-		depYAML, err := yaml.Marshal(dep)
-		if err == nil {
-			_ = os.WriteFile(filepath.Join(depDir, "deployment.yaml"), depYAML, 0o644)
-		}
-
-		var eventLines []string
-		rel := related[dep.Name]
-		for j := range events.Items {
-			ev := &events.Items[j]
-			if eventMatchesDeployment(ev, dep.Name, rel) {
-				eventLines = append(eventLines, formatKubeEventLine(ev))
-			}
-		}
-		_ = os.WriteFile(filepath.Join(depDir, "events.log"), []byte(strings.Join(eventLines, "\n")), 0o644)
-	}
-}
-
-func buildDeploymentRelatedNames(deployments []appsv1.Deployment, client kubernetes.Interface, ctx context.Context, namespace string) map[string]deploymentRelatedNames {
-	out := make(map[string]deploymentRelatedNames, len(deployments))
-	for i := range deployments {
-		out[deployments[i].Name] = deploymentRelatedNames{
-			replicaSets: make(map[string]struct{}),
-			pods:        make(map[string]struct{}),
-		}
-	}
-
-	rsList, err := client.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return out
-	}
-	podList, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return out
-	}
-
-	for i := range rsList.Items {
-		rs := &rsList.Items[i]
-		for j := range deployments {
-			dep := &deployments[j]
-			if !metav1.IsControlledBy(rs, dep) {
-				continue
-			}
-			out[dep.Name].replicaSets[rs.Name] = struct{}{}
-			for k := range podList.Items {
-				pod := &podList.Items[k]
-				if metav1.IsControlledBy(pod, rs) {
-					out[dep.Name].pods[pod.Name] = struct{}{}
-				}
-			}
-		}
-	}
-	return out
-}
-
-func eventMatchesDeployment(ev *corev1.Event, deployName string, rel deploymentRelatedNames) bool {
-	ref := ev.InvolvedObject
-	switch ref.Kind {
-	case "Deployment":
-		return ref.Name == deployName
-	case "ReplicaSet":
-		_, ok := rel.replicaSets[ref.Name]
-		return ok
-	case "Pod":
-		_, ok := rel.pods[ref.Name]
-		return ok
-	default:
-		return false
-	}
-}
-
-func formatKubeEventLine(ev *corev1.Event) string {
-	ts := ev.LastTimestamp.Time
-	if ts.IsZero() {
-		ts = ev.EventTime.Time
-	}
-	if ts.IsZero() {
-		ts = ev.FirstTimestamp.Time
-	}
-	tsStr := "unknown-time"
-	if !ts.IsZero() {
-		tsStr = ts.Format(time.RFC3339)
-	}
-	return fmt.Sprintf("%s %s %s %s/%s: %s",
-		tsStr, ev.Type, ev.Reason, refKindOrDefault(ev.InvolvedObject.Kind), ev.InvolvedObject.Name, ev.Message)
-}
-
-func refKindOrDefault(kind string) string {
-	if kind == "" {
-		return "Object"
-	}
-	return kind
-}
-
 func (m *mustGather) logGatherPodInitContainer(ctx context.Context, params *ExecutionParams, namespace, podName string) {
 	logText, fetchErr := m.fetchPodContainerLogText(ctx, params, namespace, podName, mustGatherInitContainer)
 	issueCount, samples := scanGatherLogIssues(logText)
@@ -1015,7 +802,13 @@ func (m *mustGather) logGatherPodInitContainer(ctx context.Context, params *Exec
 }
 
 func (m *mustGather) fetchPodContainerLogText(ctx context.Context, params *ExecutionParams, namespace, podName, container string) (string, error) {
-	data, err := m.readContainerLogBytes(ctx, params, namespace, podName, container, false)
+	opts := &corev1.PodLogOptions{Container: container}
+	stream, err := params.KubeClient.CoreV1().Pods(namespace).GetLogs(podName, opts).Stream(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer stream.Close()
+	data, err := io.ReadAll(stream)
 	if err != nil {
 		return "", err
 	}
@@ -1062,6 +855,7 @@ func (m *mustGather) collectClusterNodes(ctx context.Context, params *ExecutionP
 	}
 	dir := filepath.Join(gatherDir, "cluster-scoped-resources", "core")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		params.Logger.Warn("failed to create nodes dir", "error", err)
 		return
 	}
 	data, err := json.MarshalIndent(nodes.Items, "", "  ")
@@ -1090,15 +884,16 @@ func (m *mustGather) collectClusterStorage(ctx context.Context, params *Executio
 		params.Logger.Warn("failed to list persistent volumes", "error", err)
 		return
 	}
-	dir := filepath.Join(gatherDir, "cluster-scoped-resources", "core")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	dir2 := filepath.Join(gatherDir, "cluster-scoped-resources", "core")
+	if err := os.MkdirAll(dir2, 0o755); err != nil {
+		params.Logger.Warn("failed to create persistent volumes dir", "error", err)
 		return
 	}
-	data, err := json.MarshalIndent(pvs.Items, "", "  ")
+	data2, err := json.MarshalIndent(pvs.Items, "", "  ")
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, "persistentvolumes.json"), data, 0o644)
+	_ = os.WriteFile(filepath.Join(dir2, "persistentvolumes.json"), data2, 0o644)
 }
 
 func (m *mustGather) collectNamespacedDynamicResources(ctx context.Context, params *ExecutionParams, namespace, subdir string, gvrs []schema.GroupVersionResource, gatherDir string) {
@@ -1180,6 +975,7 @@ func (m *mustGather) collectDirectDiagnostics(ctx context.Context, params *Execu
 func (m *mustGather) collectPodLogs(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
 	podsDir := filepath.Join(nsDir, "pods")
 	if err := os.MkdirAll(podsDir, 0o755); err != nil {
+		params.Logger.Warn("failed to create pods dir", "namespace", namespace, "error", err)
 		return
 	}
 
@@ -1244,6 +1040,7 @@ func (m *mustGather) fetchContainerLogs(ctx context.Context, params *ExecutionPa
 func (m *mustGather) collectEvents(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
 	eventsDir := filepath.Join(nsDir, "events")
 	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		params.Logger.Warn("failed to create events dir", "namespace", namespace, "error", err)
 		return
 	}
 
@@ -1291,110 +1088,84 @@ func dumpNamedResources(logger *slog.Logger, nsDir, subdir string, items []named
 	}
 }
 
+// dumpListItems converts a typed slice to namedResources and writes each as <name>.json.
+// This generic helper eliminates the repetitive make→for→namedResource→dump boilerplate.
+func dumpListItems[T any](logger *slog.Logger, nsDir, subdir string, items []T, nameOf func(*T) string) {
+	named := make([]namedResource, len(items))
+	for i := range items {
+		named[i] = namedResource{Name: nameOf(&items[i]), Object: &items[i]}
+	}
+	dumpNamedResources(logger, nsDir, subdir, named)
+}
+
 func (m *mustGather) collectAppsResources(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	if deployments, err := params.KubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{}); err != nil {
+	if list, err := params.KubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{}); err != nil {
 		params.Logger.Warn("failed to list deployments", "namespace", namespace, "error", err)
 	} else {
-		items := make([]namedResource, len(deployments.Items))
-		for i := range deployments.Items {
-			items[i] = namedResource{Name: deployments.Items[i].Name, Object: &deployments.Items[i]}
-		}
-		dumpNamedResources(params.Logger, nsDir, "deployments", items)
+		dumpListItems(params.Logger, nsDir, "deployments", list.Items, func(d *appsv1.Deployment) string { return d.Name })
 	}
 
-	if statefulsets, err := params.KubeClient.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{}); err != nil {
+	if list, err := params.KubeClient.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{}); err != nil {
 		params.Logger.Warn("failed to list statefulsets", "namespace", namespace, "error", err)
 	} else {
-		items := make([]namedResource, len(statefulsets.Items))
-		for i := range statefulsets.Items {
-			items[i] = namedResource{Name: statefulsets.Items[i].Name, Object: &statefulsets.Items[i]}
-		}
-		dumpNamedResources(params.Logger, nsDir, "statefulsets", items)
+		dumpListItems(params.Logger, nsDir, "statefulsets", list.Items, func(s *appsv1.StatefulSet) string { return s.Name })
 	}
 
-	if daemonsets, err := params.KubeClient.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{}); err != nil {
+	if list, err := params.KubeClient.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{}); err != nil {
 		params.Logger.Warn("failed to list daemonsets", "namespace", namespace, "error", err)
 	} else {
-		items := make([]namedResource, len(daemonsets.Items))
-		for i := range daemonsets.Items {
-			items[i] = namedResource{Name: daemonsets.Items[i].Name, Object: &daemonsets.Items[i]}
-		}
-		dumpNamedResources(params.Logger, nsDir, "daemonsets", items)
+		dumpListItems(params.Logger, nsDir, "daemonsets", list.Items, func(d *appsv1.DaemonSet) string { return d.Name })
 	}
 }
 
 func (m *mustGather) collectConfigMaps(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	configMaps, err := params.KubeClient.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
+	list, err := params.KubeClient.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		params.Logger.Warn("failed to list configmaps", "namespace", namespace, "error", err)
 		return
 	}
-	items := make([]namedResource, len(configMaps.Items))
-	for i := range configMaps.Items {
-		items[i] = namedResource{Name: configMaps.Items[i].Name, Object: &configMaps.Items[i]}
-	}
-	dumpNamedResources(params.Logger, nsDir, "configmaps", items)
+	dumpListItems(params.Logger, nsDir, "configmaps", list.Items, func(cm *corev1.ConfigMap) string { return cm.Name })
 }
 
 func (m *mustGather) collectServices(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	services, err := params.KubeClient.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	list, err := params.KubeClient.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		params.Logger.Warn("failed to list services", "namespace", namespace, "error", err)
 		return
 	}
-	items := make([]namedResource, len(services.Items))
-	for i := range services.Items {
-		items[i] = namedResource{Name: services.Items[i].Name, Object: &services.Items[i]}
-	}
-	dumpNamedResources(params.Logger, nsDir, "services", items)
+	dumpListItems(params.Logger, nsDir, "services", list.Items, func(s *corev1.Service) string { return s.Name })
 }
 
 func (m *mustGather) collectBatchResources(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	if jobs, err := params.KubeClient.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{}); err != nil {
+	if list, err := params.KubeClient.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{}); err != nil {
 		params.Logger.Warn("failed to list jobs", "namespace", namespace, "error", err)
 	} else {
-		items := make([]namedResource, len(jobs.Items))
-		for i := range jobs.Items {
-			items[i] = namedResource{Name: jobs.Items[i].Name, Object: &jobs.Items[i]}
-		}
-		dumpNamedResources(params.Logger, nsDir, "jobs", items)
+		dumpListItems(params.Logger, nsDir, "jobs", list.Items, func(j *batchv1.Job) string { return j.Name })
 	}
 
-	if cronJobs, err := params.KubeClient.BatchV1().CronJobs(namespace).List(ctx, metav1.ListOptions{}); err != nil {
+	if list, err := params.KubeClient.BatchV1().CronJobs(namespace).List(ctx, metav1.ListOptions{}); err != nil {
 		params.Logger.Warn("failed to list cronjobs", "namespace", namespace, "error", err)
 	} else {
-		items := make([]namedResource, len(cronJobs.Items))
-		for i := range cronJobs.Items {
-			items[i] = namedResource{Name: cronJobs.Items[i].Name, Object: &cronJobs.Items[i]}
-		}
-		dumpNamedResources(params.Logger, nsDir, "cronjobs", items)
+		dumpListItems(params.Logger, nsDir, "cronjobs", list.Items, func(cj *batchv1.CronJob) string { return cj.Name })
 	}
 }
 
 func (m *mustGather) collectPVCs(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	pvcs, err := params.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	list, err := params.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		params.Logger.Warn("failed to list persistent volume claims", "namespace", namespace, "error", err)
 		return
 	}
-	items := make([]namedResource, len(pvcs.Items))
-	for i := range pvcs.Items {
-		items[i] = namedResource{Name: pvcs.Items[i].Name, Object: &pvcs.Items[i]}
-	}
-	dumpNamedResources(params.Logger, nsDir, "persistentvolumeclaims", items)
+	dumpListItems(params.Logger, nsDir, "persistentvolumeclaims", list.Items, func(p *corev1.PersistentVolumeClaim) string { return p.Name })
 }
 
 func (m *mustGather) collectNetworkPolicies(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
-	policies, err := params.KubeClient.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+	list, err := params.KubeClient.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		params.Logger.Warn("failed to list network policies", "namespace", namespace, "error", err)
 		return
 	}
-	items := make([]namedResource, len(policies.Items))
-	for i := range policies.Items {
-		items[i] = namedResource{Name: policies.Items[i].Name, Object: &policies.Items[i]}
-	}
-	dumpNamedResources(params.Logger, nsDir, "networkpolicies", items)
+	dumpListItems(params.Logger, nsDir, "networkpolicies", list.Items, func(p *networkingv1.NetworkPolicy) string { return p.Name })
 }
 
 func (m *mustGather) collectSecretsMetadata(ctx context.Context, params *ExecutionParams, namespace, nsDir string) {
@@ -1414,6 +1185,7 @@ func redactSecretData(secret *corev1.Secret) *corev1.Secret {
 	copy := secret.DeepCopy()
 	copy.Data = nil
 	copy.StringData = nil
+	delete(copy.Annotations, corev1.LastAppliedConfigAnnotation)
 	return copy
 }
 

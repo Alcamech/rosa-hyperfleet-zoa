@@ -106,7 +106,7 @@ func getExecution(ctx context.Context, global *GlobalOptions, id string, opts ge
 	}
 
 	// Auto-download if server returned a hint instead of actual output
-	if opts.includeOutput && isDownloadHint(exec.Output.String()) {
+	if opts.includeOutput && hasDownloadableArtifact(exec) {
 		outPath, nbytes, err := autoDownloadOutput(ctx, c, id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Auto-download failed: %v (use 'zoa download %s' manually)\n", err, id)
@@ -119,10 +119,11 @@ func getExecution(ctx context.Context, global *GlobalOptions, id string, opts ge
 	return renderExecution(global, exec, opts)
 }
 
-const downloadHintPrefix = "use 'zoa download'"
-
-func isDownloadHint(s string) bool {
-	return strings.Contains(s, downloadHintPrefix)
+// hasDownloadableArtifact returns true when the execution produced a binary
+// artifact (tar.gz) that must be retrieved via 'zoa download' instead of
+// being displayed inline.
+func hasDownloadableArtifact(exec *client.Execution) bool {
+	return exec.OutputFormat == "tar.gz"
 }
 
 func renderExecution(global *GlobalOptions, exec *client.Execution, opts getOpts) error {

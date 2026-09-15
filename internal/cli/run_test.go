@@ -473,7 +473,7 @@ func TestPrintRunResult_WhenOutputIsDownloadHint_ItShouldAutoDownload(t *testing
 		ID:            "exec-mg",
 		Status:        "succeeded",
 		ExecutionMode: "async",
-		Output:        client.FlexString(`"use 'zoa download' for large or binary artifacts"`),
+		OutputFormat:  "tar.gz",
 		DurationMs:    &dur,
 	}
 
@@ -565,7 +565,7 @@ func TestRunAction_WhenWaitCompletesWithDownloadHint_ItShouldAutoDownload(t *tes
 				ID:            id,
 				Status:        "succeeded",
 				ExecutionMode: "async",
-				Output:        client.FlexString(`"use 'zoa download' for large or binary artifacts"`),
+				OutputFormat:  "tar.gz",
 			}, nil
 		},
 		rawGetFn: func(_ context.Context, path string) (*http.Response, error) {

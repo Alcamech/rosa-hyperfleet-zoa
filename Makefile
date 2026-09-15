@@ -121,7 +121,7 @@ define run_e2e_parallel
 endef
 
 test-e2e: build
-	$(call run_e2e_parallel,-timeout 45m)
+	$(call run_e2e_parallel,-timeout 20m)
 
 # test-e2e-smoke runs only the specs labeled "smoke" — cheap, --dry-run/read-only
 # coverage (discovery + one read TA + one write TA dry-run) meant to be run
@@ -146,7 +146,7 @@ vet:
 	@go vet ./...
 
 lint: $(GOLANGCI_LINT)
-	@$(GOLANGCI_LINT) run --timeout=5m ./...
+	@$(GOLANGCI_LINT) run --timeout=10m ./...
 
 verify: fmt-check vet lint
 

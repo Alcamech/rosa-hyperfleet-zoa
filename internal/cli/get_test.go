@@ -128,17 +128,27 @@ func TestGetExecution_WhenClientReturnsError_ItShouldPropagateError(t *testing.T
 	}
 }
 
-func TestIsDownloadHint_WhenHintReturned_ItShouldReturnTrue(t *testing.T) {
-	hint := `"use 'zoa download' for large or binary artifacts"`
-	if !isDownloadHint(hint) {
-		t.Error("expected hint to be detected")
+func TestHasDownloadableArtifact_WhenTarGzFormat_ItShouldReturnTrue(t *testing.T) {
+	exec := &client.Execution{OutputFormat: "tar.gz"}
+	if !hasDownloadableArtifact(exec) {
+		t.Error("expected tar.gz format to trigger download")
 	}
 }
 
-func TestIsDownloadHint_WhenNormalOutput_ItShouldReturnFalse(t *testing.T) {
-	normal := `[{"name":"pod-1","namespace":"default"}]`
-	if isDownloadHint(normal) {
-		t.Error("expected normal output to not be detected as hint")
+func TestHasDownloadableArtifact_WhenNormalOutput_ItShouldReturnFalse(t *testing.T) {
+	exec := &client.Execution{
+		OutputFormat: "json",
+		Output:       client.FlexString(`[{"name":"pod-1","namespace":"default"}]`),
+	}
+	if hasDownloadableArtifact(exec) {
+		t.Error("expected normal JSON output to not trigger download")
+	}
+}
+
+func TestHasDownloadableArtifact_WhenEmptyFormat_ItShouldReturnFalse(t *testing.T) {
+	exec := &client.Execution{OutputFormat: ""}
+	if hasDownloadableArtifact(exec) {
+		t.Error("expected empty format to not trigger download")
 	}
 }
 
