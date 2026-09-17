@@ -254,23 +254,73 @@ func outputMap(exec map[string]interface{}) map[string]interface{} {
 	return m
 }
 
-// coreDNSPodNames lists current coredns pod names via get_resource — always
-// live state, never an assumed/cached count. Fails the calling spec
-// immediately on error; use coreDNSPodNamesOrEmpty inside Eventually loops.
-func coreDNSPodNames(tgt target) []string {
-	exec := runAction(tgt, "get_resource", "--resource", "pods", "--namespace", coreDNSNamespace, "--selector", coreDNSSelector)
-	return podNamesFromOutput(exec["output"])
+// eksClusterNamesFromList extracts cluster names from a list_eks_clusters execution.
+func eksClusterNamesFromList(exec map[string]interface{}) []string {
+	out, ok := exec["output"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	clusters, ok := out["clusters"].([]interface{})
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(clusters))
+	for _, c := range clusters {
+		if name, ok := c.(string); ok && name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
-// coreDNSPodNamesOrEmpty is the non-asserting counterpart of
-// coreDNSPodNames, returning an empty slice on any error so Eventually()
-// treats a transient failure as "not there yet" instead of aborting the
-// spec.
-func coreDNSPodNamesOrEmpty(tgt target) []string {
-	exec, err := runActionResult(tgt, "get_resource", "--resource", "pods", "--namespace", coreDNSNamespace, "--selector", coreDNSSelector)
+// describeEKSClusterDetailOrNil runs describe_eks_cluster and returns output or nil.
+func describeEKSClusterDetailOrNil(tgt target, name string) map[string]interface{} {
+	exec, err := runActionResult(tgt, "describe_eks_cluster", "--name", name)
 	if err != nil {
 		return nil
 	}
+	detail, ok := exec["output"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	if detail["name"] != name {
+		return nil
+	}
+	status, _ := detail["status"].(string)
+	if status == "" {
+		return nil
+	}
+	return detail
+}
+
+// firstDescribableEKSCluster returns the first cluster name and describe output
+// the TA can read successfully. E2E_EKS_CLUSTER_NAME pins a specific cluster.
+// We do not assert lifecycle status (ACTIVE, etc.) — that is AWS account state
+// ZOA does not control; the test only validates the TA round-trip.
+func firstDescribableEKSCluster(tgt target) (string, map[string]interface{}) {
+	if pinned := os.Getenv("E2E_EKS_CLUSTER_NAME"); pinned != "" {
+		if detail := describeEKSClusterDetailOrNil(tgt, pinned); detail != nil {
+			return pinned, detail
+		}
+		return "", nil
+	}
+
+	listExec, err := runActionResult(tgt, "list_eks_clusters")
+	if err != nil {
+		return "", nil
+	}
+	for _, name := range eksClusterNamesFromList(listExec) {
+		if detail := describeEKSClusterDetailOrNil(tgt, name); detail != nil {
+			return name, detail
+		}
+	}
+	return "", nil
+}
+
+// coreDNSPodNames lists current coredns pod names via get_resource — always
+// live state, never an assumed/cached count.
+func coreDNSPodNames(tgt target) []string {
+	exec := runAction(tgt, "get_resource", "--resource", "pods", "--namespace", coreDNSNamespace, "--selector", coreDNSSelector)
 	return podNamesFromOutput(exec["output"])
 }
 
