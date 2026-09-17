@@ -36,17 +36,21 @@ var _ = Describe("describe_eks_cluster", func() {
 
 		Describe(tgt.Name, func() {
 			It("describes an existing cluster", func() {
-				// First get the list to find a real cluster name
-				list := runAction(tgt, "list_eks_clusters")
-				out := outputMap(list)
-				clusters := out["clusters"].([]interface{})
-				Expect(clusters).NotTo(BeEmpty())
+				// Validate the TA round-trip only — not that unrelated EKS
+				// clusters in a shared ephemeral account happen to be ACTIVE.
+				var name string
+				var detail map[string]interface{}
+				Eventually(func() bool {
+					name, detail = firstDescribableEKSCluster(tgt)
+					return detail != nil
+				}, "30s", "2s").Should(BeTrue(),
+					"describe_eks_cluster should succeed for at least one listed cluster (override with E2E_EKS_CLUSTER_NAME)")
 
-				name := clusters[0].(string)
-				describe := runAction(tgt, "describe_eks_cluster", "--name", name)
-				detail := outputMap(describe)
 				Expect(detail["name"]).To(Equal(name))
-				Expect(detail["status"]).To(BeEquivalentTo("ACTIVE"))
+				Expect(detail["status"]).NotTo(BeEmpty())
+				Expect(detail["status"]).To(BeElementOf(
+					"CREATING", "ACTIVE", "DELETING", "FAILED", "UPDATING", "PENDING",
+				))
 			})
 
 			It("rejects describe without a name parameter", func() {
