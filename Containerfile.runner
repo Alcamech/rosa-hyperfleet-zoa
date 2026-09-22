@@ -26,7 +26,7 @@ RUN git config --global --add safe.directory /workspace && \
     -ldflags="-w -s -X ${VERSION_PKG}.Version=${ZOA_VERSION} -X ${VERSION_PKG}.GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}" \
     -o /workspace/zoa-runner ./cmd/zoa-runner/
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1789546276
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1789639776
 
 ARG VERSION=0.0.1
 ARG RELEASE=1
