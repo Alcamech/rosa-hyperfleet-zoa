@@ -38,16 +38,7 @@ func (r *Reconciler) RunGC(ctx context.Context) error {
 	elapsed := time.Since(start)
 	r.logger.Info("garbage collector completed", "duration_ms", elapsed.Milliseconds(), "phase_errors", phaseErrors)
 
-	metrics.Emit(
-		map[string]string{
-			"Cluster":     r.cfg.TargetCluster,
-			"HandlerMode": "gc",
-		},
-		map[string]metrics.MetricValue{
-			"GCDuration": metrics.Milliseconds(elapsed.Milliseconds()),
-			"GCErrors":   metrics.Count(phaseErrors),
-		},
-	)
+	metrics.EmitGC(r.cfg.TargetCluster, elapsed.Milliseconds(), phaseErrors)
 
 	// Returning an error causes the Lambda invocation to report failure, which
 	// surfaces as AWS CloudWatch Lambda Errors metric. This enables native AWS
@@ -86,6 +77,7 @@ func (r *Reconciler) garbageCollect(ctx context.Context) error {
 			r.logger.Warn("failed to mark as cleaned (may already be cleaned)", "execution_id", exec.ID, "error", err)
 			continue
 		}
+		metrics.EmitGCCleaned(r.cfg.TargetCluster, "execution")
 		cleaned++
 	}
 
@@ -135,6 +127,7 @@ func (r *Reconciler) orphanGC(ctx context.Context) error {
 
 		r.logger.Warn("deleting orphan K8s resources (no DynamoDB record)", "execution_id", execID, "job", job.Name)
 		r.executor.CleanupExecution(ctx, execID, nil, nil)
+		metrics.EmitGCCleaned(r.cfg.TargetCluster, "job")
 		cleaned++
 	}
 
@@ -181,6 +174,7 @@ func (r *Reconciler) cleanupStaleMustGatherPods(ctx context.Context) error {
 			r.logger.Warn("failed to delete stale must-gather pod", "pod", pod.Name, "error", err)
 			continue
 		}
+		metrics.EmitGCCleaned(r.cfg.TargetCluster, "pod")
 		cleaned++
 	}
 

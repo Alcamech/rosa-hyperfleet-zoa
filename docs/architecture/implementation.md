@@ -133,10 +133,17 @@ Converts AWS Lambda Function URL events (`events.LambdaFunctionURLRequest`) into
 
 ### `pkg/metrics` — CloudWatch EMF Instrumentation
 
-Emits [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html) structured JSON to stdout, which CloudWatch Logs automatically parses into CloudWatch Metrics (scraped by YACE into Prometheus for alerting). Provides:
-- `Emit()` — writes a single EMF log line with arbitrary dimensions and metric values
-- `HTTPMetrics()` — middleware that wraps `http.Handler` and emits `RequestDuration`, `RequestCount`, and `ServerErrors` per request
+Emits [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html) structured JSON to stdout, which CloudWatch Logs automatically parses into CloudWatch Metrics (scraped by YACE into Prometheus for alerting). HTTP metrics are emitted once per request from `pkg/api/router.go` (not middleware). Key helpers:
+- `Emit()` — writes a single EMF log line with sorted dimension keys and metric values
+- `NormalizeRoute()` / `StatusClass()` — low-cardinality HTTP route templates and status buckets
+- `EmitHTTPRequest()` — `HttpRequestCount` + `HttpRequestDuration` per API request
+- `EmitExecution()` — `ExecutionCount` + `ExecutionDuration` on terminal TA transitions (Action, Status, Mode, Scope, Type)
+- `EmitRejection()` — `RejectionCount` for cooldown, validation, circuit breaker, etc.
+- `EmitReconciler()` / `EmitGC()` — pipeline tick duration, errors, and last-run timestamps
+- `EmitGCCleaned()` / `EmitCircuitBreakerStateChange()` — GC cleanup and EKS circuit breaker events
 - Type-safe metric constructors: `Count`, `Milliseconds`, `Seconds`, `Bytes`
+
+See [observability.md](../observability.md) for the full EMF catalog and metrics pipeline.
 
 ### `pkg/api` — HTTP Handlers
 
