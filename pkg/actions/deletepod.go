@@ -22,11 +22,15 @@ func (d *deletePod) Metadata() ActionMetadata {
 		ExecutionMode:        "sync",
 		Description:          "Delete a pod and wait for it to terminate. Refuses to delete standalone pods without owner references.",
 		Authorization:        AuthorizationConfig{Approval: "none"},
-		DeploymentTargets:    []string{DeploymentTargetRC, DeploymentTargetMC},
+		TargetTypes:          []string{TargetTypeRC, TargetTypeMC},
 		TimeoutSeconds:       60,
 		WriteCooldownSeconds: 60,
 		DryRunAction:         "get_resource",
 		DryRunExtraParams:    Params{"resource": "pods"},
+		Examples: []string{
+			"zoa run delete_pod -n openshift-ingress --name router-default-abc12 --reason ROSAENG-1234",
+			"zoa run delete_pod -n cert-manager --name cert-manager-webhook-xyz --reason ROSAENG-1234 --dry-run",
+		},
 		Parameters: []ParameterDef{
 			{Name: "namespace", Required: true, Description: "Pod namespace"},
 			{Name: "name", Required: true, Description: "Pod name"},

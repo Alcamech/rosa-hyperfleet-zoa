@@ -22,15 +22,18 @@ type listVPCEndpoints struct{}
 
 func (l *listVPCEndpoints) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:              "list_vpc_endpoints",
-		Scope:             "aws-api",
-		Type:              "read",
-		ExecutionMode:     "sync",
-		Description:       "List all VPC endpoints in the configured AWS region.",
-		Authorization:     AuthorizationConfig{Approval: "none"},
-		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
-		TimeoutSeconds:    60,
-		Parameters:        []ParameterDef{},
+		Name:           "list_vpc_endpoints",
+		Scope:          "aws-api",
+		Type:           "read",
+		ExecutionMode:  "sync",
+		Description:    "List all VPC endpoints in the configured AWS region.",
+		Authorization:  AuthorizationConfig{Approval: "none"},
+		TargetTypes:    []string{TargetTypeRC, TargetTypeMC},
+		TimeoutSeconds: 60,
+		Examples: []string{
+			"zoa run list_vpc_endpoints --reason ROSAENG-1234",
+		},
+		Parameters: []ParameterDef{},
 	}
 }
 
@@ -82,14 +85,17 @@ type describeVPCEndpoint struct{}
 
 func (d *describeVPCEndpoint) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:              "describe_vpc_endpoint",
-		Scope:             "aws-api",
-		Type:              "read",
-		ExecutionMode:     "sync",
-		Description:       "Describe a specific VPC endpoint by ID.",
-		Authorization:     AuthorizationConfig{Approval: "none"},
-		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
-		TimeoutSeconds:    60,
+		Name:           "describe_vpc_endpoint",
+		Scope:          "aws-api",
+		Type:           "read",
+		ExecutionMode:  "sync",
+		Description:    "Describe a specific VPC endpoint by ID.",
+		Authorization:  AuthorizationConfig{Approval: "none"},
+		TargetTypes:    []string{TargetTypeRC, TargetTypeMC},
+		TimeoutSeconds: 60,
+		Examples: []string{
+			"zoa run describe_vpc_endpoint --name vpce-0123456789abcdef0 --reason ROSAENG-1234",
+		},
 		Parameters: []ParameterDef{
 			{Name: "name", Required: true, Description: "VPC endpoint ID (e.g. vpce-0123456789abcdef0)"},
 		},

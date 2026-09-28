@@ -22,8 +22,8 @@ type Action interface {
 type Params = map[string]string
 
 const (
-	DeploymentTargetRC = "rc"
-	DeploymentTargetMC = "mc"
+	TargetTypeRC = "rc"
+	TargetTypeMC = "mc"
 )
 
 type ActionMetadata struct {
@@ -34,6 +34,7 @@ type ActionMetadata struct {
 	// DisallowExecutionModeOverride rejects API/CLI execution_mode overrides.
 	DisallowExecutionModeOverride bool                `json:"disallow_execution_mode_override,omitempty"`
 	Description                   string              `json:"description"`
+	Examples                      []string            `json:"examples,omitempty"`
 	Parameters                    []ParameterDef      `json:"parameters"`
 	Authorization                 AuthorizationConfig `json:"authorization"`
 	TimeoutSeconds                int                 `json:"timeout_seconds"`
@@ -41,9 +42,9 @@ type ActionMetadata struct {
 	DryRunAction                  string              `json:"dry_run_action,omitempty"`
 	DryRunExtraParams             Params              `json:"dry_run_extra_params,omitempty"`
 	RBAC                          *RBACConfig         `json:"rbac,omitempty"`
-	// DeploymentTargets lists rc and/or mc endpoints where this TA is registered.
+	// TargetTypes lists rc and/or mc ZOA endpoints where this TA is registered.
 	// Omitted or empty means both. Not exposed on describe/list JSON.
-	DeploymentTargets []string `json:"-"`
+	TargetTypes []string `json:"-"`
 }
 
 type AuthorizationConfig struct {
@@ -71,16 +72,16 @@ type RBACRule struct {
 }
 
 type ExecutionParams struct {
-	Params           map[string]string
-	ExecutionID      string
-	TargetCluster    string
-	DeploymentTarget string
-	Force            bool
-	KubeClient       kubernetes.Interface
-	DynamicClient    dynamic.Interface
-	RESTConfig       *rest.Config
-	AWSConfig        *aws.Config
-	Logger           *slog.Logger
+	Params        map[string]string
+	ExecutionID   string
+	TargetCluster string
+	TargetType    string
+	Force         bool
+	KubeClient    kubernetes.Interface
+	DynamicClient dynamic.Interface
+	RESTConfig    *rest.Config
+	AWSConfig     *aws.Config
+	Logger        *slog.Logger
 }
 
 type ActionResult struct {

@@ -127,7 +127,12 @@ func (m *mustGather) Metadata() ActionMetadata {
 		Description:                   "Collect must-gather bundle (logs, events, resources) for hosted cluster, MC platform, or RC platform. MC ZOA: gather mc|hcp (hcp needs cluster-id). RC ZOA: gather rc.",
 		Authorization:                 AuthorizationConfig{Approval: "none"},
 		TimeoutSeconds:                mustGatherTimeout,
-		DeploymentTargets:             []string{DeploymentTargetRC, DeploymentTargetMC},
+		TargetTypes:                   []string{TargetTypeRC, TargetTypeMC},
+		Examples: []string{
+			"zoa run must_gather --gather mc --reason ROSAENG-1234 --wait",
+			"zoa run must_gather --gather hcp --cluster-id 01234567-89ab-cdef-0123-456789abcdef --reason ROSAENG-1234 --wait",
+			"zoa run must_gather --gather rc --reason ROSAENG-1234 --wait",
+		},
 		Parameters: []ParameterDef{
 			{Name: "gather", Required: true, Description: "Scope: hcp (hosted cluster + control plane), mc (management platform namespaces), rc (regional platform + Seaplane CRs). Comma-separated; must match this ZOA endpoint."},
 			{Name: "cluster_id", Description: "Hosted cluster UUID. Required when gather includes hcp; ignored for mc/rc-only gathers."},
@@ -160,11 +165,11 @@ func (m *mustGather) Validate(ctx context.Context, params *ExecutionParams) erro
 		return err
 	}
 
-	deploymentTarget := params.DeploymentTarget
-	if deploymentTarget == "" {
-		deploymentTarget = DeploymentTarget()
+	targetType := params.TargetType
+	if targetType == "" {
+		targetType = RuntimeTargetType()
 	}
-	if err := validateGatherForDeployment(deploymentTarget, targets); err != nil {
+	if err := validateGatherForTargetType(targetType, targets); err != nil {
 		return err
 	}
 
@@ -632,12 +637,12 @@ func parseGatherTargets(raw string) ([]string, error) {
 	return targets, nil
 }
 
-func validateGatherForDeployment(deploymentTarget string, targets []string) error {
-	if deploymentTarget == "" {
+func validateGatherForTargetType(targetType string, targets []string) error {
+	if targetType == "" {
 		return nil
 	}
 	for _, t := range targets {
-		switch deploymentTarget {
+		switch targetType {
 		case "rc":
 			if t != "rc" {
 				return fmt.Errorf("gather %q is not allowed on rc ZOA endpoint (allowed: rc)", t)
@@ -647,7 +652,7 @@ func validateGatherForDeployment(deploymentTarget string, targets []string) erro
 				return fmt.Errorf("gather %q is not allowed on mc ZOA endpoint (allowed: hcp, mc)", t)
 			}
 		default:
-			return fmt.Errorf("invalid deployment target %q", deploymentTarget)
+			return fmt.Errorf("invalid target type %q", targetType)
 		}
 	}
 	return nil

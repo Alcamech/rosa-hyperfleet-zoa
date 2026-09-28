@@ -2,29 +2,29 @@ package actions
 
 import "testing"
 
-func TestGet_WhenDeploymentTargetFilters_ItShouldHideNonMatchingActions(t *testing.T) {
-	t.Cleanup(func() { SetDeploymentTarget("") })
+func TestGet_WhenTargetTypeFilters_ItShouldHideNonMatchingActions(t *testing.T) {
+	t.Cleanup(func() { SetTargetType("") })
 
-	SetDeploymentTarget("rc")
+	SetTargetType("rc")
 	if _, ok := Get("must_gather"); !ok {
 		t.Fatal("expected must_gather on rc endpoint")
 	}
 
-	SetDeploymentTarget("mc")
+	SetTargetType("mc")
 	if _, ok := Get("must_gather"); !ok {
 		t.Fatal("expected must_gather on mc endpoint")
 	}
 }
 
-func TestList_WhenDeploymentTargetSet_ItShouldReturnFilteredActions(t *testing.T) {
-	t.Cleanup(func() { SetDeploymentTarget("") })
+func TestList_WhenTargetTypeSet_ItShouldReturnFilteredActions(t *testing.T) {
+	t.Cleanup(func() { SetTargetType("") })
 
 	all := len(ListCatalog())
 	if all == 0 {
 		t.Fatal("expected registered actions")
 	}
 
-	SetDeploymentTarget("rc")
+	SetTargetType("rc")
 	rcActions := List()
 	if len(rcActions) == 0 {
 		t.Fatal("expected actions on rc endpoint")
@@ -35,18 +35,18 @@ func TestList_WhenDeploymentTargetSet_ItShouldReturnFilteredActions(t *testing.T
 	for _, a := range rcActions {
 		meta := a.Metadata()
 		found := false
-		for _, dt := range meta.DeploymentTargets {
+		for _, dt := range meta.TargetTypes {
 			if dt == "rc" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("action %q returned by List() for rc but DeploymentTargets=%v", meta.Name, meta.DeploymentTargets)
+			t.Errorf("action %q returned by List() for rc but TargetTypes=%v", meta.Name, meta.TargetTypes)
 		}
 	}
 
-	SetDeploymentTarget("mc")
+	SetTargetType("mc")
 	mcActions := List()
 	if len(mcActions) == 0 {
 		t.Fatal("expected actions on mc endpoint")
@@ -54,14 +54,14 @@ func TestList_WhenDeploymentTargetSet_ItShouldReturnFilteredActions(t *testing.T
 	for _, a := range mcActions {
 		meta := a.Metadata()
 		found := false
-		for _, dt := range meta.DeploymentTargets {
+		for _, dt := range meta.TargetTypes {
 			if dt == "mc" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("action %q returned by List() for mc but DeploymentTargets=%v", meta.Name, meta.DeploymentTargets)
+			t.Errorf("action %q returned by List() for mc but TargetTypes=%v", meta.Name, meta.TargetTypes)
 		}
 	}
 }

@@ -7,25 +7,25 @@ import (
 )
 
 var (
-	mu                      sync.RWMutex
-	catalog                 = make(map[string]Action)
-	runtimeDeploymentTarget string
+	mu                sync.RWMutex
+	catalog           = make(map[string]Action)
+	runtimeTargetType string
 )
 
-// SetDeploymentTarget configures which ZOA deployment (rc or mc) this process serves.
-// Must be called once at startup from ZOA_DEPLOYMENT_TARGET. When empty, all registered
-// TAs remain visible (used in unit tests).
-func SetDeploymentTarget(target string) {
+// SetTargetType configures which ZOA target type (rc or mc) this process serves.
+// Must be called once at startup from ZOA_TARGET_TYPE.
+// When empty, all registered TAs remain visible (used in unit tests).
+func SetTargetType(target string) {
 	mu.Lock()
 	defer mu.Unlock()
-	runtimeDeploymentTarget = target
+	runtimeTargetType = target
 }
 
-// DeploymentTarget returns the runtime deployment target set at startup.
-func DeploymentTarget() string {
+// RuntimeTargetType returns the target type (rc or mc) configured at process startup.
+func RuntimeTargetType() string {
 	mu.RLock()
 	defer mu.RUnlock()
-	return runtimeDeploymentTarget
+	return runtimeTargetType
 }
 
 func Register(a Action) {
@@ -40,11 +40,11 @@ func Register(a Action) {
 }
 
 func allowedOnRuntimeTarget(meta ActionMetadata) bool {
-	target := runtimeDeploymentTarget
+	target := runtimeTargetType
 	if target == "" {
 		return true
 	}
-	for _, t := range meta.DeploymentTargets {
+	for _, t := range meta.TargetTypes {
 		if t == target {
 			return true
 		}
@@ -52,7 +52,7 @@ func allowedOnRuntimeTarget(meta ActionMetadata) bool {
 	return false
 }
 
-// Get returns a registered action visible on this deployment target.
+// Get returns a registered action visible on this target type.
 func Get(name string) (Action, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -64,7 +64,7 @@ func Get(name string) (Action, bool) {
 	return a, true
 }
 
-// GetCatalog returns an action from the full catalog, ignoring deployment target filtering.
+// GetCatalog returns an action from the full catalog, ignoring target type filtering.
 func GetCatalog(name string) (Action, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -73,7 +73,7 @@ func GetCatalog(name string) (Action, bool) {
 	return a, ok
 }
 
-// List returns registered actions visible on this deployment target.
+// List returns registered actions visible on this target type.
 func List() []Action {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -90,7 +90,7 @@ func List() []Action {
 	return out
 }
 
-// ListCatalog returns all registered actions regardless of deployment target.
+// ListCatalog returns all registered actions regardless of target type.
 func ListCatalog() []Action {
 	mu.RLock()
 	defer mu.RUnlock()
