@@ -111,9 +111,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// traverse: MC Prometheus → SigV4 remote-write proxy → RC Thanos.
 	// If the proxy breaks, MC alerts go blind silently.
 	//
-	// Raw metrics have cluster_type (from Prometheus externalLabels).
-	// Recording rules aggregate by (cluster) which strips cluster_type,
-	// so recording rule checks use cluster name pattern instead.
+	// RC/MC via cluster_type on externalLabels (not cluster name patterns).
 	Context("cluster labels", func() {
 
 		It("should have EMF metrics from the regional cluster", func() {
@@ -153,46 +151,61 @@ var _ = Describe("ZOA Metrics", func() {
 		})
 	})
 
-	// Recording rule values: verify rules produce results for both RC and MC.
-	// Rules aggregate by (cluster) which strips cluster_type, so we use
-	// cluster name patterns: ".*-regional" for RC, ".*-mc.*" for MC.
+	// Recording rules only retain cluster (zoa.yaml). Discover clusters from
+	// YACE Lambda errors (nilToZero), assert each rule on every RC/MC cluster.
 	//
 	// GC recording rules (zoa:gc_last_run, zoa:gc_tick_count) are excluded —
 	// their input metrics take up to 12 min to appear (see infrastructure
-	// metrics comment). The reconciler rules prove the same pipeline.
-	// GC *alert* definitions are still verified in alerts_test.go.
-	Context("recording rule values", func() {
+	// metrics comment). GC *alert* definitions are still verified in alerts_test.go.
+	Context("recording rule values", Ordered, func() {
 
-		type check struct {
-			rule         string
-			clusterLabel string
-			desc         string
+		const (
+			clusterTypeRegional   = "regional-cluster"
+			clusterTypeManagement = "management-cluster"
+		)
+
+		var regionalClusters []string
+		var managementClusters []string
+
+		BeforeAll(func() {
+			Eventually(func() bool {
+				regionalClusters = discoverZOAClusters(client, clusterTypeRegional)
+				managementClusters = discoverZOAClusters(client, clusterTypeManagement)
+				return len(regionalClusters) > 0 && len(managementClusters) > 0
+			}, "5m", "15s").Should(BeTrue(),
+				"discover ZOA Lambda metric clusters for regional-cluster and management-cluster")
+			GinkgoWriter.Printf("regional clusters: %v\n", regionalClusters)
+			GinkgoWriter.Printf("management clusters: %v\n", managementClusters)
+		})
+
+		ruleNames := []string{
+			"zoa:reconciler_last_run",
+			"zoa:reconciler_tick_count",
+			"zoa:lambda_error_rate",
+			"zoa:ta_success_rate",
+			"zoa:ta_total_executions",
+			"zoa:api_availability",
 		}
 
-		rules := []check{
-			{"zoa:reconciler_last_run", ".*-regional", "RC"},
-			{"zoa:reconciler_last_run", ".*-mc.*", "MC"},
-			{"zoa:reconciler_tick_count", ".*-regional", "RC"},
-			{"zoa:reconciler_tick_count", ".*-mc.*", "MC"},
-			{"zoa:lambda_error_rate", ".*-regional", "RC"},
-			{"zoa:lambda_error_rate", ".*-mc.*", "MC"},
-			{"zoa:ta_success_rate", ".*-regional", "RC"},
-			{"zoa:ta_success_rate", ".*-mc.*", "MC"},
-			{"zoa:ta_total_executions", ".*-regional", "RC"},
-			{"zoa:ta_total_executions", ".*-mc.*", "MC"},
-			{"zoa:api_availability", ".*-regional", "RC"},
-			{"zoa:api_availability", ".*-mc.*", "MC"},
-		}
-
-		for _, tc := range rules {
-			tc := tc
-			It("should have "+tc.rule+" producing values for "+tc.desc, func() {
-				query := `count(` + tc.rule + `{cluster=~"` + tc.clusterLabel + `"}) > 0`
+		assertRuleOnAllClusters := func(rule string, clusters []string, role string) {
+			Expect(clusters).NotTo(BeEmpty(), "expected at least one %s cluster", role)
+			for _, cluster := range clusters {
+				query := recordingRuleValuesQueryForCluster(rule, cluster)
 				Eventually(func() bool {
 					resp := thanosQuery(client, query)
 					return resp.Status == "success" && len(resp.Data.Result) > 0
 				}, "5m", "15s").Should(BeTrue(),
-					"%s should produce values for %s (cluster=~%s)", tc.rule, tc.desc, tc.clusterLabel)
+					"%s should produce values on %s cluster %q", rule, role, cluster)
+			}
+		}
+
+		for _, rule := range ruleNames {
+			rule := rule
+			It("should have "+rule+" on every regional cluster", func() {
+				assertRuleOnAllClusters(rule, regionalClusters, "regional")
+			})
+			It("should have "+rule+" on every management cluster", func() {
+				assertRuleOnAllClusters(rule, managementClusters, "management")
 			})
 		}
 	})

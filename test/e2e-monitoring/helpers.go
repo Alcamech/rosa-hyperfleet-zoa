@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"time"
 
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -170,6 +171,45 @@ type Rule struct {
 	Query  string            `json:"query"`
 	Labels map[string]string `json:"labels"`
 	State  string            `json:"state"`
+}
+
+// zoaLambdaFunctionRE matches ZOA API and worker Lambda functions in YACE metrics.
+const zoaLambdaFunctionRE = `".*-zoa-(api|worker)"`
+
+// zoaClustersByTypeQuery lists cluster labels with ZOA Lambda YACE metrics for
+// cluster_type. Uses aws_lambda_errors_sum (nilToZero) as an infrastructure anchor.
+func zoaClustersByTypeQuery(clusterType string) string {
+	return fmt.Sprintf(
+		`group by (cluster) (aws_lambda_errors_sum{dimension_FunctionName=~%s, cluster_type="%s"})`,
+		zoaLambdaFunctionRE, clusterType,
+	)
+}
+
+// discoverZOAClusters returns sorted cluster labels that export ZOA Lambda YACE
+// metrics for the given cluster_type (infrastructure anchor, not EMF/TA traffic).
+func discoverZOAClusters(client *rhobsClient, clusterType string) []string {
+	resp := thanosQuery(client, zoaClustersByTypeQuery(clusterType))
+	if resp.Status != "success" {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, series := range resp.Data.Result {
+		if cluster := series.Metric["cluster"]; cluster != "" {
+			seen[cluster] = struct{}{}
+		}
+	}
+	clusters := make([]string, 0, len(seen))
+	for c := range seen {
+		clusters = append(clusters, c)
+	}
+	sort.Strings(clusters)
+	return clusters
+}
+
+// recordingRuleValuesQueryForCluster checks that a recording rule has a series
+// for one Prometheus cluster label.
+func recordingRuleValuesQueryForCluster(rule, cluster string) string {
+	return fmt.Sprintf(`count(%s{cluster="%s"}) > 0`, rule, cluster)
 }
 
 // thanosQuery executes a PromQL instant query and returns the parsed response.
