@@ -157,7 +157,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// GC recording rules (zoa:gc_last_run, zoa:gc_tick_count) are excluded —
 	// their input metrics take up to 12 min to appear (see infrastructure
 	// metrics comment). GC *alert* definitions are still verified in alerts_test.go.
-	Context("recording rule values", func() {
+	Context("recording rule values", Ordered, func() {
 
 		const (
 			clusterTypeRegional   = "regional-cluster"
