@@ -25,6 +25,8 @@ type Execution struct {
 	AccountID       string            `json:"account_id" dynamodbav:"accountId"`
 	TargetCluster   string            `json:"target_cluster" dynamodbav:"targetCluster"`
 	Operator        string            `json:"operator" dynamodbav:"operator"`
+	SignerARN       string            `json:"signer_arn,omitempty" dynamodbav:"signerARN,omitempty"`
+	SessionID       string            `json:"session_id,omitempty" dynamodbav:"sessionId,omitempty"`
 	Status          Status            `json:"status" dynamodbav:"status"`
 	ExecutionMode   string            `json:"execution_mode" dynamodbav:"executionMode"`
 	Scope           string            `json:"scope" dynamodbav:"scope"`
@@ -32,7 +34,7 @@ type Execution struct {
 	DryRun          bool              `json:"dry_run" dynamodbav:"dryRun"`
 	Force           bool              `json:"force" dynamodbav:"force"`
 	Params          map[string]string `json:"params,omitempty" dynamodbav:"params,omitempty"`
-	Jira            string            `json:"jira,omitempty" dynamodbav:"jira,omitempty"`
+	Reason          string            `json:"reason,omitempty" dynamodbav:"reason,omitempty"`
 
 	Revision string `json:"revision,omitempty" dynamodbav:"revision,omitempty"`
 
@@ -72,12 +74,14 @@ type AuditEntry struct {
 	Path          string `json:"path" dynamodbav:"path"`
 	StatusCode    int    `json:"status_code" dynamodbav:"statusCode"`
 	Operator      string `json:"operator" dynamodbav:"operator"`
+	SignerARN     string `json:"signer_arn,omitempty" dynamodbav:"signerARN,omitempty"`
+	SessionID     string `json:"session_id,omitempty" dynamodbav:"sessionId,omitempty"`
 	Action        string `json:"action,omitempty" dynamodbav:"action,omitempty"`
 	TargetCluster string `json:"target_cluster,omitempty" dynamodbav:"targetCluster,omitempty"`
 	SourceIP      string `json:"source_ip,omitempty" dynamodbav:"sourceIp,omitempty"`
 	RequestID     string `json:"request_id,omitempty" dynamodbav:"requestId,omitempty"`
 	UserAgent     string `json:"user_agent,omitempty" dynamodbav:"userAgent,omitempty"`
-	Jira          string `json:"jira,omitempty" dynamodbav:"jira,omitempty"`
+	Reason        string `json:"reason,omitempty" dynamodbav:"reason,omitempty"`
 	Force         bool   `json:"force,omitempty" dynamodbav:"force,omitempty"`
 	DryRun        bool   `json:"dry_run,omitempty" dynamodbav:"dryRun,omitempty"`
 	ExecutionID   string `json:"execution_id,omitempty" dynamodbav:"executionId,omitempty"`

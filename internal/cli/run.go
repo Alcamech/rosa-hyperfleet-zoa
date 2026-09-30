@@ -9,20 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli/parambind"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 type runOptions struct {
-	namespace     string
-	clusterID     string
-	gather        string
-	allNS         bool
-	selector      string
-	verbose       bool
-	name          string
-	resource      string
-	jira          string
+	ta            parambind.RunTAParams
+	reason        string
 	force         bool
 	dryRun        bool
 	noWait        bool
@@ -48,31 +43,31 @@ serves exactly one EKS cluster — set ZOA_API_URL to point at the right one.
 The result (stdout of the TA script) is printed to stdout on success.
 On failure, logs are printed to stderr. Use --no-wait to fire and forget.`,
 		Example: `  # Basic read action
-  zoa run get_resource --resource pods -n cert-manager --jira ROSAENG-1234
+  zoa run get_resource --resource pods -n cert-manager --reason ROSAENG-1234
 
   # All namespaces with verbose JSON, piped to jq
-  zoa run get_resource --resource pods -A -v --jira ROSAENG-1234 | jq '.[] | select(.status != "Running")'
+  zoa run get_resource --resource pods -A -v --reason ROSAENG-1234 | jq '.[] | select(.status != "Running")'
 
   # Write action
-  zoa run rollout_restart --resource deployment -n cert-manager --name cert-manager-webhook --jira ROSAENG-1234
+  zoa run rollout_restart --resource deployment -n cert-manager --name cert-manager-webhook --reason ROSAENG-1234
 
   # Write action with force (bypass cooldown and concurrency limits)
-  zoa run rollout_restart --resource deployment -n cert-manager --name cert-manager-webhook --jira ROSAENG-1234 --force
+  zoa run rollout_restart --resource deployment -n cert-manager --name cert-manager-webhook --reason ROSAENG-1234 --force
 
   # Dry run (executes the dry_run_action variant, no side effects)
-  zoa run delete_pod -n cert-manager --name cert-manager-webhook-abc123 --jira ROSAENG-1234 --dry-run
+  zoa run delete_pod -n cert-manager --name cert-manager-webhook-abc123 --reason ROSAENG-1234 --dry-run
 
   # Destructive action
-  zoa run delete_pod -n cert-manager --name cert-manager-webhook-abc123 --jira ROSAENG-1234
+  zoa run delete_pod -n cert-manager --name cert-manager-webhook-abc123 --reason ROSAENG-1234
 
   # Fire and forget (don't wait for completion)
-  zoa run get_resource --resource nodes --jira ROSAENG-1234 --no-wait -o json`,
+  zoa run get_resource --resource nodes --reason ROSAENG-1234 --no-wait -o json`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("missing action name\n\n  Usage: zoa run <action> --jira <ticket>\n  Run 'zoa actions' to see available actions")
+				return fmt.Errorf("missing action name\n\n  Usage: zoa run <action> --reason <ticket>\n  Run 'zoa actions' to see available actions")
 			}
 			if len(args) > 1 {
-				return fmt.Errorf("unexpected argument %q — action parameters must be passed as flags\n\n  Example: zoa run %s --resource %s --jira <ticket>\n  Run 'zoa describe %s' to see available parameters",
+				return fmt.Errorf("unexpected argument %q — action parameters must be passed as flags\n\n  Example: zoa run %s --resource %s --reason <ticket>\n  Run 'zoa describe %s' to see available parameters",
 					args[1], args[0], args[1], args[0])
 			}
 			return nil
@@ -82,26 +77,38 @@ On failure, logs are printed to stderr. Use --no-wait to fire and forget.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace")
-	cmd.Flags().StringVar(&opts.clusterID, "cluster-id", "", "Hosted cluster UUID (must_gather: required when --gather includes hcp)")
-	cmd.Flags().StringVar(&opts.gather, "gather", "", "must_gather scopes: hcp, mc, rc — required; must match this ZOA endpoint")
-	cmd.Flags().BoolVarP(&opts.allNS, "all-namespaces", "A", false, "All namespaces")
-	cmd.Flags().StringVarP(&opts.selector, "selector", "l", "", "Label selector")
-	cmd.Flags().BoolVarP(&opts.verbose, "verbose", "v", false, "Full JSON output from the action (no compact summary)")
-	cmd.Flags().StringVar(&opts.name, "name", "", "Resource name")
-	cmd.Flags().StringVar(&opts.resource, "resource", "", "Resource type (for generic actions)")
-	cmd.Flags().StringVar(&opts.jira, "jira", "", "Jira ticket (required, e.g. ROSAENG-1234)")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "Bypass write cooldown and concurrency limits")
-	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Execute dry-run variant of the action")
-	cmd.Flags().BoolVar(&opts.noWait, "no-wait", false, "Return ID immediately, skip output display (sync: skips output fetch; async: already default)")
-	cmd.Flags().BoolVar(&opts.wait, "wait", false, "Poll until async execution completes (no effect on sync — sync returns inline)")
+	parambind.RegisterTAParamFlags(cmd, &opts.ta)
+	cmd.Flags().StringVar(&opts.reason, "reason", "",
+		fmt.Sprintf("Required; env %s (%s)", reason.EnvVar, reason.FormatHint))
+	// TODO(ROSAENG-60291): remove --jira after seaplane/zoa e2e use --reason only.
+	cmd.Flags().StringVar(&opts.reason, "jira", "", "Deprecated alias for --reason")
+	cmd.Flags().BoolVar(&opts.force, "force", false, parambind.RunFlagHelp("force"))
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, parambind.RunFlagHelp("dry-run"))
+	cmd.Flags().BoolVar(&opts.noWait, "no-wait", false, parambind.RunFlagHelp("no-wait"))
+	cmd.Flags().BoolVar(&opts.wait, "wait", false, parambind.RunFlagHelp("wait"))
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 5*time.Minute, "Max poll duration when --wait is active")
 	cmd.Flags().DurationVar(&opts.pollInterval, "wait-poll-interval", 30*time.Second, "Poll frequency when --wait is active")
-	cmd.Flags().DurationVar(&opts.timeout, "timeout", 0, "Server-side TA execution timeout (e.g. 60s, 3m; bounded by server max 295s)")
-	cmd.Flags().StringVar(&opts.executionMode, "execution-mode", "", "Override execution class: 'sync' or 'async' (default: TA's declared class)")
-	cmd.Flags().StringArrayVar(&opts.params, "param", nil, "Additional parameters (key=value, repeatable)")
+	cmd.Flags().DurationVar(&opts.timeout, "timeout", 0, parambind.RunFlagHelp("timeout"))
+	cmd.Flags().StringVar(&opts.executionMode, "execution-mode", "", parambind.RunFlagHelp("execution-mode"))
+	cmd.Flags().StringArrayVar(&opts.params, "param", nil, parambind.RunFlagHelp("param"))
 
-	_ = cmd.MarkFlagRequired("jira")
+	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeActionNames(toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	_ = cmd.RegisterFlagCompletionFunc("param", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		action := ""
+		if len(args) > 0 {
+			action = args[0]
+		}
+		if action == "" {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return actionParameterCompletions(action, toComplete), cobra.ShellCompDirectiveNoSpace
+	})
 
 	return cmd
 }
@@ -112,10 +119,15 @@ func runAction(ctx context.Context, global *GlobalOptions, opts *runOptions, act
 		return err
 	}
 
-	params := buildParams(opts)
+	reasonValue, err := reason.Resolve(opts.reason)
+	if err != nil {
+		return err
+	}
+
+	params := parambind.ToAPIParams(opts.ta, opts.params)
 
 	req := &client.DispatchRequest{
-		Jira:           opts.jira,
+		Reason:         reasonValue,
 		Params:         params,
 		Force:          opts.force,
 		DryRun:         opts.dryRun,
@@ -301,49 +313,6 @@ func trySavePartialOutput(ctx context.Context, global *GlobalOptions, exec *clie
 		return
 	}
 	printSavedArtifact("partial output", nbytes, outPath)
-}
-
-func buildParams(opts *runOptions) map[string]string {
-	params := make(map[string]string)
-
-	if opts.namespace != "" {
-		params["namespace"] = opts.namespace
-	}
-	if opts.clusterID != "" {
-		params["cluster_id"] = opts.clusterID
-	}
-	if opts.gather != "" {
-		params["gather"] = opts.gather
-	}
-	if opts.allNS {
-		params["all_namespaces"] = "true"
-	}
-	if opts.selector != "" {
-		params["label_selector"] = opts.selector
-	}
-	if opts.name != "" {
-		params["name"] = opts.name
-	}
-	if opts.resource != "" {
-		params["resource"] = opts.resource
-	}
-	if opts.verbose {
-		params["verbose"] = "true"
-	}
-
-	for _, p := range opts.params {
-		key, val, ok := strings.Cut(p, "=")
-		if ok {
-			if _, exists := params[key]; !exists {
-				params[key] = val
-			}
-		}
-	}
-
-	if len(params) == 0 {
-		return nil
-	}
-	return params
 }
 
 func formatTags(action, executedAction string, force, dryRun bool) string {

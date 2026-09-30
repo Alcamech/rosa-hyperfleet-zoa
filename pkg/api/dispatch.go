@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,13 +14,13 @@ import (
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
-var jiraPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]+-\d+$`)
-
 type createRequest struct {
-	Jira           string            `json:"jira"`
+	Reason         string            `json:"reason"`
+	Jira           string            `json:"jira"` // deprecated alias; see coalesceReason (ROSAENG-60291)
 	Params         map[string]string `json:"params,omitempty"`
 	Force          bool              `json:"force"`
 	DryRun         bool              `json:"dry_run"`
@@ -47,8 +47,7 @@ type createResponse struct {
 
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionName string) {
 	ctx := r.Context()
-	// TODO: Replace with identity resolution from ECS task ARN once rosa-boundary is integrated
-	operator := r.Header.Get("X-Operator")
+	operator, signerARN, sessionID := h.resolveIdentity(r)
 	accountID := r.Header.Get("X-Account-ID")
 
 	if accountID == "" {
@@ -72,23 +71,30 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		return
 	}
 
-	if req.Jira == "" {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withForce(req.Force), withDryRun(req.DryRun))
+	reasonRaw := coalesceReason(req.Reason, req.Jira)
+	reasonValue, err := reason.Require(reasonRaw)
+	if err != nil {
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(reasonRaw), withForce(req.Force), withDryRun(req.DryRun))
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
-		writeError(w, http.StatusBadRequest, "missing_jira", "jira ticket is required for all executions")
+		code := "missing_reason"
+		msg := err.Error()
+		if strings.TrimSpace(reasonRaw) != "" {
+			code = "invalid_reason"
+			// Legacy main-branch CLI sends {"jira":...} only; e2e still expects PROJECT-123 (ROSAENG-60291).
+			if strings.TrimSpace(req.Reason) == "" && strings.TrimSpace(req.Jira) != "" {
+				code = "invalid_jira"
+				msg = fmt.Sprintf("jira ticket %q must match format PROJECT-123", req.Jira)
+			}
+		}
+		writeError(w, http.StatusBadRequest, code, msg)
 		return
 	}
-	if !jiraPattern.MatchString(req.Jira) {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
-		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
-		writeError(w, http.StatusBadRequest, "invalid_jira", fmt.Sprintf("jira ticket %q must match format PROJECT-123", req.Jira))
-		return
-	}
+	req.Reason = reasonValue
 
 	meta := action.Metadata()
 
 	if err := validateParams(meta, req.Params); err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
 		return
@@ -115,7 +121,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 	}
 
 	if err := h.executor.ValidateAction(ctx, action, req.Params); err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
@@ -141,7 +147,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		// Exclude dry-runs (they don't count as real executions)
 		matching := filterMatchingParams(recent, req.Params)
 		if len(matching) > 0 {
-			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 			metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionWriteCooldown)
 			writeError(w, http.StatusTooManyRequests, "write_cooldown",
 				fmt.Sprintf("action %q with these params was executed within the last %ds; use force=true to override", actionName, cooldown))
@@ -158,7 +164,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 			return
 		}
 		if activeCount >= h.cfg.MaxConcurrentPerTarget {
-			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 			metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionMaxConcurrent)
 			writeError(w, http.StatusTooManyRequests, "max_concurrent",
 				fmt.Sprintf("target %q has %d active executions (max %d); use force=true to override", h.cfg.TargetCluster, activeCount, h.cfg.MaxConcurrentPerTarget))
@@ -176,7 +182,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		}
 		if req.ExecutionMode != meta.ExecutionMode {
 			if meta.DisallowExecutionModeOverride {
-				h.recordAudit(r, http.StatusBadRequest, actionName, "", withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+				h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 				writeError(w, http.StatusBadRequest, "execution_mode_locked",
 					fmt.Sprintf("action %q requires execution_mode=%q and cannot be overridden", actionName, meta.ExecutionMode))
 				return
@@ -225,8 +231,10 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		Type:            meta.Type,
 		DryRun:          req.DryRun,
 		Force:           req.Force,
-		Jira:            req.Jira,
+		Reason:          req.Reason,
 		Operator:        operator,
+		SignerARN:       signerARN,
+		SessionID:       sessionID,
 		Params:          req.Params,
 		Revision:        version.GitCommit,
 		TimeoutSeconds:  timeoutSeconds,
@@ -240,7 +248,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		return
 	}
 
-	h.recordAudit(r, http.StatusAccepted, executedAction, executionID, withJira(req.Jira), withForce(req.Force), withDryRun(req.DryRun))
+	h.recordAudit(r, http.StatusAccepted, executedAction, executionID, withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 
 	if execMode == "sync" {
 		h.executeSyncAndRespond(w, ctx, exec, action, req.Params, req.Force)
