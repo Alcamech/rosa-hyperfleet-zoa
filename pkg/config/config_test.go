@@ -13,7 +13,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("EKS_CLUSTER_CA", "LS0tLS1CRUdJTi...")
 	t.Setenv("EKS_CLUSTER_NAME", "eph-test-rc")
 	t.Setenv("TARGET_CLUSTER", "eph-test-rc")
-	t.Setenv("ZOA_DEPLOYMENT_TARGET", "rc")
+	t.Setenv("ZOA_TARGET_TYPE", "rc")
 	t.Setenv("AUDIT_TABLE", "zoa-audit")
 	t.Setenv("UPLOADER_ROLE_ARN", "arn:aws:iam::123456:role/zoa-uploader")
 	t.Setenv("JOB_IMAGE", "123456.dkr.ecr.us-east-1.amazonaws.com/zoa-runner:latest")
@@ -57,6 +57,92 @@ func TestLoad_WhenWorkerMode_ItShouldSucceedWithRequiredVars(t *testing.T) {
 	}
 	if cfg.IsAPIMode() {
 		t.Error("expected IsAPIMode() false")
+	}
+}
+
+func setAccessEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("HANDLER_MODE", "access")
+	t.Setenv("SESSIONS_TABLE", "zoa-boundary-sessions")
+	t.Setenv("TARGETS_SSM_PREFIX", "/zoa/targets/us-east-1")
+	t.Setenv("AUDIT_TABLE", "zoa-audit")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("EXEC_SCOPED_ROLE_ARN", "arn:aws:iam::123456789012:role/test-zoa-access-exec-scoped")
+}
+
+func TestLoad_WhenAccessMode_ItShouldSucceedWithRequiredVars(t *testing.T) {
+	setAccessEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.HandlerMode != "access" {
+		t.Errorf("expected HandlerMode 'access', got %q", cfg.HandlerMode)
+	}
+	if !cfg.IsAccessMode() {
+		t.Error("expected IsAccessMode() true")
+	}
+	if cfg.IsAPIMode() {
+		t.Error("expected IsAPIMode() false")
+	}
+	if cfg.IsWorkerMode() {
+		t.Error("expected IsWorkerMode() false")
+	}
+	if cfg.SessionsTable != "zoa-boundary-sessions" {
+		t.Errorf("expected SessionsTable 'zoa-boundary-sessions', got %q", cfg.SessionsTable)
+	}
+	if cfg.TargetsSSMPrefix != "/zoa/targets/us-east-1" {
+		t.Errorf("expected TargetsSSMPrefix '/zoa/targets/us-east-1', got %q", cfg.TargetsSSMPrefix)
+	}
+}
+
+func TestLoad_WhenAccessModeMissingSessionsTable_ItShouldReturnError(t *testing.T) {
+	setAccessEnv(t)
+	t.Setenv("SESSIONS_TABLE", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when SESSIONS_TABLE is empty in access mode")
+	}
+}
+
+func TestLoad_WhenAccessModeMissingTargetsSSMPrefix_ItShouldReturnError(t *testing.T) {
+	setAccessEnv(t)
+	t.Setenv("TARGETS_SSM_PREFIX", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when TARGETS_SSM_PREFIX is empty in access mode")
+	}
+}
+
+func TestLoad_WhenAccessModeMissingAuditTable_ItShouldReturnError(t *testing.T) {
+	setAccessEnv(t)
+	t.Setenv("AUDIT_TABLE", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when AUDIT_TABLE is empty in access mode")
+	}
+}
+
+func TestLoad_WhenAccessModeDoesNotRequireEKS_ItShouldSucceed(t *testing.T) {
+	setAccessEnv(t)
+	// Access mode should NOT require EKS fields
+	t.Setenv("EKS_CLUSTER_ENDPOINT", "")
+	t.Setenv("EKS_CLUSTER_CA", "")
+	t.Setenv("EKS_CLUSTER_NAME", "")
+	t.Setenv("EXECUTION_TABLE", "")
+	t.Setenv("ARTIFACT_BUCKET", "")
+	t.Setenv("ZOA_TARGET_TYPE", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.IsAccessMode() {
+		t.Error("expected IsAccessMode() true")
 	}
 }
 
@@ -165,23 +251,23 @@ func TestLoad_WhenWorkerMissingJobImage_ItShouldReturnError(t *testing.T) {
 	}
 }
 
-func TestLoad_WhenMissingDeploymentTarget_ItShouldReturnError(t *testing.T) {
+func TestLoad_WhenMissingTargetType_ItShouldReturnError(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("ZOA_DEPLOYMENT_TARGET", "")
+	t.Setenv("ZOA_TARGET_TYPE", "")
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error when ZOA_DEPLOYMENT_TARGET is empty")
+		t.Fatal("expected error when ZOA_TARGET_TYPE is empty")
 	}
 }
 
-func TestLoad_WhenInvalidDeploymentTarget_ItShouldReturnError(t *testing.T) {
+func TestLoad_WhenInvalidTargetType_ItShouldReturnError(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("ZOA_DEPLOYMENT_TARGET", "hcp")
+	t.Setenv("ZOA_TARGET_TYPE", "hcp")
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error for invalid ZOA_DEPLOYMENT_TARGET")
+		t.Fatal("expected error for invalid ZOA_TARGET_TYPE")
 	}
 }
 

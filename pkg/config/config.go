@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -17,7 +18,7 @@ type Config struct {
 	AuditTable             string
 	ArtifactBucket         string
 	TargetCluster          string
-	DeploymentTarget       string
+	TargetType             string
 	Region                 string
 	JobImage               string
 	WriteCooldownSeconds   int
@@ -81,6 +82,44 @@ type Config struct {
 	// platform's responsibility and invisible to TA authors.
 	// Default: 180s (3 minutes). Tunable without code change.
 	AsyncSchedulingOverheadSeconds int
+
+	// --- Access + API mode fields ---
+
+	// SessionsTable is the DynamoDB table for boundary session state.
+	// Required in access mode (session lifecycle). Optional in api mode
+	// (identity bridge: ECS task ARN → SRE identity).
+	SessionsTable string
+
+	// TargetsSSMPrefix is the SSM Parameter Store path prefix for target registry
+	// (e.g., /zoa/targets/us-east-1). Each cluster writes its own parameter.
+	TargetsSSMPrefix string
+
+	// ECSClusterARN is the default ECS cluster ARN for boundary tasks (RC targets).
+	ECSClusterARN string
+
+	// ECSTaskDefinitionARN is the default ECS task definition ARN for boundary containers.
+	ECSTaskDefinitionARN string
+
+	// ECSSubnets is a comma-separated list of subnet IDs for boundary ECS tasks.
+	ECSSubnets string
+
+	// ECSSecurityGroup is the security group ID for boundary ECS tasks.
+	ECSSecurityGroup string
+
+	// BoundaryECSExecCommand is the ecs:ExecuteCommand interactive shell (from Terraform / ZOA_ECS_EXEC_COMMAND).
+	BoundaryECSExecCommand string
+
+	// ExecScopedRoleARN is the IAM role assumed by Access on session join to vend per-task ECS Exec credentials.
+	ExecScopedRoleARN string
+
+	// ExecCredentialDurationSeconds is the lifetime of vended exec credentials (default 3600).
+	ExecCredentialDurationSeconds int
+
+	// SessionIdleTimeoutSeconds is terminal inactivity before the reaper stops an active session (default 3600).
+	SessionIdleTimeoutSeconds int
+
+	// SessionMaxDurationHours is the default session length and the max timeout_hours clients may request (default 4).
+	SessionMaxDurationHours int
 }
 
 func Load() (*Config, error) {
@@ -90,7 +129,7 @@ func Load() (*Config, error) {
 		AuditTable:                     getEnv("AUDIT_TABLE", ""),
 		ArtifactBucket:                 getEnv("ARTIFACT_BUCKET", ""),
 		TargetCluster:                  getEnv("TARGET_CLUSTER", ""),
-		DeploymentTarget:               getEnv("ZOA_DEPLOYMENT_TARGET", ""),
+		TargetType:                     targetTypeFromEnv(),
 		Region:                         getEnv("AWS_REGION", "us-east-1"),
 		JobImage:                       getEnv("JOB_IMAGE", ""),
 		WriteCooldownSeconds:           getEnvInt("WRITE_COOLDOWN_SECONDS", 300),
@@ -110,13 +149,48 @@ func Load() (*Config, error) {
 		WorkerFunctionName:             getEnv("AWS_LAMBDA_FUNCTION_NAME", ""),
 		JobsNamespace:                  getEnv("ZOA_JOBS_NAMESPACE", "zoa-jobs"),
 		AsyncSchedulingOverheadSeconds: getEnvInt("ASYNC_SCHEDULING_OVERHEAD_SECONDS", 180),
+		SessionsTable:                  getEnv("SESSIONS_TABLE", ""),
+		TargetsSSMPrefix:               getEnv("TARGETS_SSM_PREFIX", ""),
+		ECSClusterARN:                  getEnv("ECS_CLUSTER_ARN", ""),
+		ECSTaskDefinitionARN:           getEnv("ECS_TASK_DEFINITION_ARN", ""),
+		ECSSubnets:                     getEnv("ECS_SUBNETS", ""),
+		ECSSecurityGroup:               getEnv("ECS_SECURITY_GROUP", ""),
+		BoundaryECSExecCommand:         getEnv("ZOA_ECS_EXEC_COMMAND", "runuser -u sre -- /bin/bash -l"),
+		ExecScopedRoleARN:              getEnv("EXEC_SCOPED_ROLE_ARN", ""),
+		ExecCredentialDurationSeconds:  getEnvInt("EXEC_CREDENTIAL_DURATION_SECONDS", 3600),
+		SessionIdleTimeoutSeconds:      getEnvInt("SESSION_IDLE_TIMEOUT_SECONDS", 3600),
+		SessionMaxDurationHours:        getEnvInt("SESSION_MAX_DURATION_HOURS", 4),
 	}
 
-	validModes := map[string]bool{"api": true, "worker": true}
+	validModes := map[string]bool{"api": true, "worker": true, "access": true}
 	if !validModes[cfg.HandlerMode] {
-		return nil, fmt.Errorf("invalid HANDLER_MODE %q: must be 'api' or 'worker'", cfg.HandlerMode)
+		return nil, fmt.Errorf("invalid HANDLER_MODE %q: must be 'api', 'worker', or 'access'", cfg.HandlerMode)
 	}
 
+	// Access mode has a different set of required fields — it does NOT talk to EKS.
+	if cfg.IsAccessMode() {
+		if cfg.SessionsTable == "" {
+			return nil, fmt.Errorf("SESSIONS_TABLE is required in access mode")
+		}
+		if cfg.TargetsSSMPrefix == "" {
+			return nil, fmt.Errorf("TARGETS_SSM_PREFIX is required in access mode")
+		}
+		if cfg.AuditTable == "" {
+			return nil, fmt.Errorf("AUDIT_TABLE is required in access mode")
+		}
+		if cfg.Region == "" {
+			return nil, fmt.Errorf("AWS_REGION is required in access mode")
+		}
+		if cfg.ExecScopedRoleARN == "" {
+			return nil, fmt.Errorf("EXEC_SCOPED_ROLE_ARN is required in access mode")
+		}
+		if cfg.BoundaryECSExecCommand == "" {
+			return nil, fmt.Errorf("ZOA_ECS_EXEC_COMMAND is required in access mode")
+		}
+		return cfg, nil
+	}
+
+	// Common validation for api and worker modes.
 	if cfg.ExecutionsTable == "" {
 		return nil, fmt.Errorf("EXECUTION_TABLE is required")
 	}
@@ -132,11 +206,11 @@ func Load() (*Config, error) {
 	if cfg.EKSClusterName == "" {
 		return nil, fmt.Errorf("EKS_CLUSTER_NAME is required (used for EKS token generation)")
 	}
-	if cfg.DeploymentTarget == "" {
-		return nil, fmt.Errorf("ZOA_DEPLOYMENT_TARGET is required (rc or mc)")
+	if cfg.TargetType == "" {
+		return nil, fmt.Errorf("%s is required (rc or mc)", targetTypeEnv)
 	}
-	if cfg.DeploymentTarget != "rc" && cfg.DeploymentTarget != "mc" {
-		return nil, fmt.Errorf("invalid ZOA_DEPLOYMENT_TARGET %q: must be rc or mc", cfg.DeploymentTarget)
+	if cfg.TargetType != "rc" && cfg.TargetType != "mc" {
+		return nil, fmt.Errorf("invalid %s %q: must be rc or mc", targetTypeEnv, cfg.TargetType)
 	}
 
 	if cfg.HandlerMode == "api" {
@@ -180,6 +254,10 @@ func (c *Config) IsWorkerMode() bool {
 	return c.HandlerMode == "worker"
 }
 
+func (c *Config) IsAccessMode() bool {
+	return c.HandlerMode == "access"
+}
+
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -197,4 +275,23 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return i
+}
+
+const targetTypeEnv = "ZOA_TARGET_TYPE"
+
+func targetTypeFromEnv() string {
+	return TargetTypeFromEnv()
+}
+
+// TargetTypeFromEnv reads ZOA_TARGET_TYPE (rc or mc).
+func TargetTypeFromEnv() string {
+	return normalizeTargetType(os.Getenv(targetTypeEnv))
+}
+
+func normalizeTargetType(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "rc" || s == "mc" {
+		return s
+	}
+	return ""
 }

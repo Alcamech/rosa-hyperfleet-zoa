@@ -33,7 +33,7 @@ import (
 // (success/shape, not-found) where the row need not actually exist: a listing
 // query for an absent GVK still succeeds with zero rows, and a --name lookup
 // still resolves to "not found".
-const aValidGVK = "seaplane.io/v1alpha1/Cluster"
+const aValidGVK = "hyperfleet.io/v1alpha1/Cluster"
 
 // firstDBGVK returns a GVK present in the seaplane-db (via list_db_gvks) and
 // whether any exist, so the opportunistic specs can Skip on an empty DB instead
@@ -55,7 +55,7 @@ func firstDBGVK(tgt target) (string, bool) {
 var _ = Describe("list_db_gvks", func() {
 	for _, tgt := range targets {
 		tgt := tgt
-		if tgt.DeploymentTarget != "rc" {
+		if tgt.TargetType != "rc" {
 			continue // RC-only: seaplane-db is not reachable from MC ZOA
 		}
 
@@ -85,7 +85,7 @@ var _ = Describe("list_db_gvks", func() {
 var _ = Describe("get_db_resource", func() {
 	for _, tgt := range targets {
 		tgt := tgt
-		if tgt.DeploymentTarget != "rc" {
+		if tgt.TargetType != "rc" {
 			continue // RC-only: seaplane-db is not reachable from MC ZOA
 		}
 

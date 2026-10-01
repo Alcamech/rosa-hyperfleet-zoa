@@ -30,13 +30,14 @@ type Handler struct {
 	cfg            *config.Config
 	executionStore store.ExecutionStore
 	auditStore     store.AuditStore
+	sessionStore   store.SessionStore
 	executor       *executor.Executor
 	s3Client       S3Getter
 	logger         *slog.Logger
 	mux            *http.ServeMux
 }
 
-func New(cfg *config.Config, execStore store.ExecutionStore, auditStore store.AuditStore, exec *executor.Executor, s3Client S3Getter, logger *slog.Logger) *Handler {
+func New(cfg *config.Config, execStore store.ExecutionStore, auditStore store.AuditStore, exec *executor.Executor, s3Client S3Getter, logger *slog.Logger, opts ...HandlerOption) *Handler {
 	h := &Handler{
 		cfg:            cfg,
 		executionStore: execStore,
@@ -46,18 +47,57 @@ func New(cfg *config.Config, execStore store.ExecutionStore, auditStore store.Au
 		logger:         logger,
 		mux:            http.NewServeMux(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
 	h.registerRoutes()
 	return h
 }
 
+// HandlerOption configures optional Handler dependencies.
+type HandlerOption func(*Handler)
+
+// WithSessionStore enables the identity bridge — resolves ECS task ARN to SRE
+// identity via DynamoDB session lookup. Required when boundary containers call
+// the per-VPC Lambda. Without this, the handler falls back to the X-Operator header.
+func WithSessionStore(s store.SessionStore) HandlerOption {
+	return func(h *Handler) { h.sessionStore = s }
+}
+
+// resolveIdentity returns operator, signer_arn, and session_id for audit/executions.
+// See ResolveIdentity and docs/boundary/identity-bridge.md.
+func (h *Handler) resolveIdentity(r *http.Request) (operator, signerARN, sessionID string) {
+	signerARN = r.Header.Get("X-Operator")
+
+	if h.sessionStore != nil && signerARN != "" {
+		result, err := ResolveIdentity(r.Context(), signerARN, h.sessionStore)
+		if err != nil {
+			h.logger.Warn("identity bridge lookup failed, using ARN extraction",
+				"signerARN", signerARN, "error", err)
+			username, _, _ := ExtractSREIdentity(signerARN)
+			operator = username
+		} else {
+			operator = result.Operator
+			sessionID = result.SessionID
+		}
+	} else {
+		username, _, _ := ExtractSREIdentity(signerARN)
+		operator = username
+	}
+
+	if operator == "" {
+		operator = signerARN
+	}
+	return operator, signerARN, sessionID
+}
+
 func (h *Handler) registerRoutes() {
-	// Health check endpoint
-	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+	h.mux.HandleFunc("GET "+PathHealth, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	h.mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
+	h.mux.HandleFunc("GET "+PathVersion, func(w http.ResponseWriter, _ *http.Request) {
 		info := version.Get()
 		resp := struct {
 			version.Info
@@ -70,20 +110,21 @@ func (h *Handler) registerRoutes() {
 	})
 
 	// TA execution
-	h.mux.HandleFunc("POST /api/v0/trusted-actions/{action}/run", h.handleCreateRoute)
+	h.mux.HandleFunc("POST "+PathTrustedActions+"/{action}/run", h.handleCreateRoute)
 
 	// Execution queries
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/runs/{id}/output", h.handleOutputRoute)
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/runs/{id}/logs", h.handleLogsRoute)
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/runs/{id}", h.handleGetExecutionRoute)
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/runs", h.handleListExecutions)
+	h.mux.HandleFunc("GET "+PathTrustedActionsRuns+"/{id}/output", h.handleOutputRoute)
+	h.mux.HandleFunc("GET "+PathTrustedActionsRuns+"/{id}/logs", h.handleLogsRoute)
+	h.mux.HandleFunc("GET "+PathTrustedActionsRuns+"/{id}", h.handleGetExecutionRoute)
+	h.mux.HandleFunc("GET "+PathTrustedActionsRuns, h.handleListExecutions)
+
+	// Audit (canonical path + legacy URL for older zoa CLI — must register before /{action})
+	h.mux.HandleFunc("GET "+PathAudit, h.handleAudit)
+	h.mux.HandleFunc("GET "+PathLegacyAudit, h.handleAudit)
 
 	// TA metadata
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/{action}", h.handleDescribeActionRoute)
-	h.mux.HandleFunc("GET /api/v0/trusted-actions", h.handleListActions)
-
-	// Audit
-	h.mux.HandleFunc("GET /api/v0/trusted-actions/audit", h.handleAudit)
+	h.mux.HandleFunc("GET "+PathTrustedActions+"/{action}", h.handleDescribeActionRoute)
+	h.mux.HandleFunc("GET "+PathTrustedActions, h.handleListActions)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +165,7 @@ func (h *Handler) handleOutputRoute(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		statusCode = rw.statusCode
 	}
-	h.recordAudit(r, statusCode, "", id)
+	h.recordAudit(r, statusCode, AuditActionRunOutput, id)
 }
 
 func (h *Handler) handleLogsRoute(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +176,7 @@ func (h *Handler) handleLogsRoute(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		statusCode = rw.statusCode
 	}
-	h.recordAudit(r, statusCode, "", id)
+	h.recordAudit(r, statusCode, AuditActionRunLogs, id)
 }
 
 func (h *Handler) handleDescribeActionRoute(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +199,7 @@ func (h *Handler) handleGetExecution(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	h.recordAudit(r, http.StatusOK, "", id)
+	h.recordAudit(r, http.StatusOK, AuditActionRunGet, id)
 
 	type enrichedExecution struct {
 		*store.Execution
@@ -262,7 +303,7 @@ func (h *Handler) handleListExecutions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.recordAudit(r, http.StatusOK, "", "")
+	h.recordAudit(r, http.StatusOK, AuditActionRunsList, "")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"items": executions, "count": len(executions), "next_token": nil})
 }
@@ -337,7 +378,7 @@ func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.recordAudit(r, http.StatusOK, "", "")
+	h.recordAudit(r, http.StatusOK, AuditActionQuery, "")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"items": entries, "count": len(entries)})
 }
@@ -387,15 +428,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 type auditOpts struct {
-	jira   string
+	reason string
 	force  bool
 	dryRun bool
 }
 
 type AuditOption func(*auditOpts)
 
-func withJira(jira string) AuditOption {
-	return func(o *auditOpts) { o.jira = jira }
+func withReason(reason string) AuditOption {
+	return func(o *auditOpts) { o.reason = reason }
 }
 
 func withForce(force bool) AuditOption {
@@ -406,12 +447,10 @@ func withDryRun(dryRun bool) AuditOption {
 	return func(o *auditOpts) { o.dryRun = dryRun }
 }
 
-// recordAudit persists an audit entry for the request. X-Account-ID and
-// X-Operator are always populated in legitimate requests because the ZOA CLI
-// sets them unconditionally (the CLI must have valid AWS credentials to sign
-// requests via SigV4, and it derives account-id from those credentials).
-// List/audit handlers no longer reject missing X-Account-ID to enable
-// cross-cluster visibility, but that path is unreachable from the CLI.
+// recordAudit persists an audit entry for the request. Identity is resolved
+// via the identity bridge (task UUID → sessions table for boundary callers,
+// direct ARN extraction for laptop callers). Both the resolved operator and
+// raw SigV4 signer ARN are recorded for forensic completeness.
 func (h *Handler) recordAudit(r *http.Request, statusCode int, action, executionID string, opts ...AuditOption) {
 	if h.auditStore == nil {
 		return
@@ -421,7 +460,7 @@ func (h *Handler) recordAudit(r *http.Request, statusCode int, action, execution
 		opt(&o)
 	}
 	accountID := r.Header.Get("X-Account-ID")
-	operator := r.Header.Get("X-Operator")
+	operator, signerARN, sessionID := h.resolveIdentity(r)
 	entry := &store.AuditEntry{
 		AccountID:     accountID,
 		Timestamp:     time.Now().Format(time.RFC3339Nano),
@@ -429,13 +468,15 @@ func (h *Handler) recordAudit(r *http.Request, statusCode int, action, execution
 		Path:          r.URL.Path,
 		StatusCode:    statusCode,
 		Operator:      operator,
+		SignerARN:     signerARN,
+		SessionID:     sessionID,
 		Action:        action,
 		TargetCluster: h.cfg.TargetCluster,
 		SourceIP:      r.Header.Get("X-Source-IP"),
 		RequestID:     r.Header.Get("X-Request-ID"),
 		UserAgent:     r.Header.Get("User-Agent"),
 		ExecutionID:   executionID,
-		Jira:          o.jira,
+		Reason:        o.reason,
 		Force:         o.force,
 		DryRun:        o.dryRun,
 	}

@@ -45,33 +45,33 @@ type SyncResult struct {
 }
 
 type Executor struct {
-	kubeClient       kubernetes.Interface
-	restConfig       *rest.Config
-	s3Client         S3API
-	stsClient        STSAssumeRoler
-	awsCfg           *aws.Config
-	artifactBucket   string
-	uploaderRoleARN  string
-	awsReadRoleARN   string
-	awsWriteRoleARN  string
-	kmsKeyARN        string
-	region           string
-	jobImage         string
-	deploymentTarget string
-	logger           *slog.Logger
-	eksCircuit       *circuitBreaker
+	kubeClient      kubernetes.Interface
+	restConfig      *rest.Config
+	s3Client        S3API
+	stsClient       STSAssumeRoler
+	awsCfg          *aws.Config
+	artifactBucket  string
+	uploaderRoleARN string
+	awsReadRoleARN  string
+	awsWriteRoleARN string
+	kmsKeyARN       string
+	region          string
+	jobImage        string
+	targetType      string
+	logger          *slog.Logger
+	eksCircuit      *circuitBreaker
 }
 
 type ExecutorConfig struct {
-	ArtifactBucket   string
-	UploaderRoleARN  string
-	AWSReadRoleARN   string
-	AWSWriteRoleARN  string
-	KMSKeyARN        string
-	Region           string
-	JobImage         string
-	DeploymentTarget string
-	TargetCluster    string
+	ArtifactBucket  string
+	UploaderRoleARN string
+	AWSReadRoleARN  string
+	AWSWriteRoleARN string
+	KMSKeyARN       string
+	Region          string
+	JobImage        string
+	TargetType      string
+	TargetCluster   string
 }
 
 func New(kubeClient kubernetes.Interface, restConfig *rest.Config, s3Client S3API, awsCfg *aws.Config, cfg ExecutorConfig, logger *slog.Logger) *Executor {
@@ -80,21 +80,21 @@ func New(kubeClient kubernetes.Interface, restConfig *rest.Config, s3Client S3AP
 		stsClient = sts.NewFromConfig(*awsCfg)
 	}
 	return &Executor{
-		kubeClient:       kubeClient,
-		restConfig:       restConfig,
-		s3Client:         s3Client,
-		stsClient:        stsClient,
-		awsCfg:           awsCfg,
-		artifactBucket:   cfg.ArtifactBucket,
-		uploaderRoleARN:  cfg.UploaderRoleARN,
-		awsReadRoleARN:   cfg.AWSReadRoleARN,
-		awsWriteRoleARN:  cfg.AWSWriteRoleARN,
-		kmsKeyARN:        cfg.KMSKeyARN,
-		region:           cfg.Region,
-		jobImage:         cfg.JobImage,
-		deploymentTarget: cfg.DeploymentTarget,
-		logger:           logger,
-		eksCircuit:       newCircuitBreaker(cfg.TargetCluster),
+		kubeClient:      kubeClient,
+		restConfig:      restConfig,
+		s3Client:        s3Client,
+		stsClient:       stsClient,
+		awsCfg:          awsCfg,
+		artifactBucket:  cfg.ArtifactBucket,
+		uploaderRoleARN: cfg.UploaderRoleARN,
+		awsReadRoleARN:  cfg.AWSReadRoleARN,
+		awsWriteRoleARN: cfg.AWSWriteRoleARN,
+		kmsKeyARN:       cfg.KMSKeyARN,
+		region:          cfg.Region,
+		jobImage:        cfg.JobImage,
+		targetType:      cfg.TargetType,
+		logger:          logger,
+		eksCircuit:      newCircuitBreaker(cfg.TargetCluster),
 	}
 }
 
@@ -199,7 +199,7 @@ func (e *Executor) ExecuteSync(ctx context.Context, executionID string, action a
 	if syncCtx != nil && syncCtx.Force {
 		execParams.Force = true
 	}
-	execParams.DeploymentTarget = e.deploymentTarget
+	execParams.TargetType = e.targetType
 	if syncCtx != nil && syncCtx.TargetCluster != "" {
 		execParams.TargetCluster = syncCtx.TargetCluster
 	}
@@ -242,12 +242,12 @@ func (e *Executor) ValidateAction(ctx context.Context, action actions.Action, pa
 		}
 	} else {
 		execParams = &actions.ExecutionParams{
-			Params:           params,
-			ExecutionID:      "pre-dispatch",
-			DeploymentTarget: e.deploymentTarget,
-			KubeClient:       e.kubeClient,
-			RESTConfig:       e.restConfig,
-			Logger:           logger,
+			Params:      params,
+			ExecutionID: "pre-dispatch",
+			TargetType:  e.targetType,
+			KubeClient:  e.kubeClient,
+			RESTConfig:  e.restConfig,
+			Logger:      logger,
 		}
 		if e.restConfig != nil {
 			dynClient, dynErr := dynamic.NewForConfig(e.restConfig)
@@ -418,7 +418,7 @@ func (e *Executor) DispatchAsync(ctx context.Context, exec *store.Execution, act
 								{Name: "S3_PREFIX", Value: fmt.Sprintf("executions/%s", exec.ID)},
 								{Name: "PARAMS", Value: marshalParamsEnv(exec.Params)},
 								{Name: "OPERATOR", Value: exec.Operator},
-								{Name: "ZOA_DEPLOYMENT_TARGET", Value: e.deploymentTarget},
+								{Name: "ZOA_TARGET_TYPE", Value: e.targetType},
 							},
 							// S3 credentials from STS-scoped Secret (mounted as env vars)
 							EnvFrom: []corev1.EnvFromSource{
@@ -562,11 +562,11 @@ func (e *Executor) buildAWSParams(ctx context.Context, executionID string, param
 	logger.Info("assumed AWS role for TA execution", "role", roleARN, "type", meta.Type)
 
 	return &actions.ExecutionParams{
-		Params:           params,
-		ExecutionID:      executionID,
-		DeploymentTarget: e.deploymentTarget,
-		AWSConfig:        &scopedCfg,
-		Logger:           logger,
+		Params:      params,
+		ExecutionID: executionID,
+		TargetType:  e.targetType,
+		AWSConfig:   &scopedCfg,
+		Logger:      logger,
 	}, nil
 }
 
@@ -590,14 +590,14 @@ func (e *Executor) buildKubeParams(ctx context.Context, executionID string, para
 	}
 
 	return &actions.ExecutionParams{
-		Params:           params,
-		ExecutionID:      executionID,
-		TargetCluster:    "",
-		DeploymentTarget: e.deploymentTarget,
-		KubeClient:       execClient,
-		DynamicClient:    dynClient,
-		RESTConfig:       execConfig,
-		Logger:           logger,
+		Params:        params,
+		ExecutionID:   executionID,
+		TargetCluster: "",
+		TargetType:    e.targetType,
+		KubeClient:    execClient,
+		DynamicClient: dynClient,
+		RESTConfig:    execConfig,
+		Logger:        logger,
 	}, nil
 }
 

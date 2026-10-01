@@ -9,19 +9,25 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/eksauth"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/accesscross"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/api"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/awsecs"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/boundaryexec"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/execcreds"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/handler"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/lambdahttp"
@@ -42,9 +48,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	actions.SetDeploymentTarget(cfg.DeploymentTarget)
+	actions.SetTargetType(cfg.TargetType)
 
-	logger = logger.With("target", cfg.TargetCluster, "deployment_target", cfg.DeploymentTarget, "region", cfg.Region)
+	logger = logger.With("target", cfg.TargetCluster, "target_type", cfg.TargetType, "region", cfg.Region)
 	logger.Info("starting zoa-lambda",
 		"handler_mode", cfg.HandlerMode,
 		"reconciler_deadline_s", cfg.ReconcilerDeadlineSeconds,
@@ -59,6 +65,44 @@ func main() {
 	if err != nil {
 		logger.Error("failed to load AWS config", "error", err)
 		os.Exit(1)
+	}
+
+	// Access mode: no EKS, no S3, no cross-account — DynamoDB + SSM + ECS.
+	if cfg.IsAccessMode() {
+		dynamoClient := dynamodb.NewFromConfig(awsCfg)
+		ssmClient := ssm.NewFromConfig(awsCfg)
+		ecsClient := awsecs.New(awsCfg)
+		sessionStore := store.NewSessionStore(dynamoClient, cfg.SessionsTable, cfg.DynamoDBTTLDays)
+		targetStore := store.NewTargetStore(ssmClient, cfg.TargetsSSMPrefix)
+		auditStore := store.NewAuditStore(dynamoClient, cfg.AuditTable, cfg.DynamoDBTTLDays)
+
+		caller, err := sts.NewFromConfig(awsCfg).GetCallerIdentity(initCtx, &sts.GetCallerIdentityInput{})
+		if err != nil {
+			logger.Error("failed to get caller identity", "error", err)
+			os.Exit(1)
+		}
+		homeAccountID := aws.ToString(caller.Account)
+
+		execDuration := time.Duration(cfg.ExecCredentialDurationSeconds) * time.Second
+		execVendor := execcreds.NewVendor(sts.NewFromConfig(awsCfg), execDuration)
+		ecsFactory := accesscross.NewECSFactory(awsCfg, homeAccountID, ecsClient)
+
+		accessHandler := api.NewAccessHandler(api.AccessDeps{
+			Cfg:          cfg,
+			SessionStore: sessionStore,
+			TargetStore:  targetStore,
+			AuditStore:   auditStore,
+			ECSClient:    ecsClient,
+			ECSFactory:   ecsFactory,
+			ExecVendor:   execVendor,
+			Logger:       logger,
+		})
+
+		streamingHandler := lambdahttp.NewStreamingHandler(accessHandler)
+
+		logger.Info("Access mode: native Lambda Function URL streaming handler")
+		lambda.Start(streamingHandler.Handle)
+		return
 	}
 
 	// For cross-account data access (MC→RC), assume the data-access role to get
@@ -114,15 +158,15 @@ func main() {
 	}
 
 	exec := executor.New(kubeClient, restCfg, s3Client, &awsCfg, executor.ExecutorConfig{
-		ArtifactBucket:   cfg.ArtifactBucket,
-		UploaderRoleARN:  cfg.UploaderRoleARN,
-		AWSReadRoleARN:   cfg.AWSReadRoleARN,
-		AWSWriteRoleARN:  cfg.AWSWriteRoleARN,
-		KMSKeyARN:        cfg.KMSKeyARN,
-		Region:           cfg.Region,
-		JobImage:         cfg.JobImage,
-		DeploymentTarget: cfg.DeploymentTarget,
-		TargetCluster:    cfg.TargetCluster,
+		ArtifactBucket:  cfg.ArtifactBucket,
+		UploaderRoleARN: cfg.UploaderRoleARN,
+		AWSReadRoleARN:  cfg.AWSReadRoleARN,
+		AWSWriteRoleARN: cfg.AWSWriteRoleARN,
+		KMSKeyARN:       cfg.KMSKeyARN,
+		Region:          cfg.Region,
+		JobImage:        cfg.JobImage,
+		TargetType:      cfg.TargetType,
+		TargetCluster:   cfg.TargetCluster,
 	}, logger)
 
 	switch cfg.HandlerMode {
@@ -131,7 +175,14 @@ func main() {
 		// Converts Function URL events to http.Request, serves via the HTTP handler,
 		// and returns a streaming response (up to 200MB).
 		auditStore := store.NewAuditStore(dynamoClient, cfg.AuditTable, cfg.DynamoDBTTLDays)
-		apiHandler := api.New(cfg, execStore, auditStore, exec, s3Client, logger)
+
+		var apiOpts []api.HandlerOption
+		if cfg.SessionsTable != "" {
+			sessionStore := store.NewSessionStore(dynamoClient, cfg.SessionsTable, cfg.DynamoDBTTLDays)
+			apiOpts = append(apiOpts, api.WithSessionStore(sessionStore))
+			logger.Info("identity bridge enabled", "sessionsTable", cfg.SessionsTable)
+		}
+		apiHandler := api.New(cfg, execStore, auditStore, exec, s3Client, logger, apiOpts...)
 		streamingHandler := lambdahttp.NewStreamingHandler(apiHandler)
 
 		logger.Info("API mode: native Lambda Function URL streaming handler")
@@ -143,9 +194,28 @@ func main() {
 		lambdaClient := awslambda.NewFromConfig(awsCfg)
 		reconciler := scheduler.NewReconciler(execStore, kubeClient, lambdaClient, exec, cfg, logger)
 
+		// Reaper: terminates expired boundary sessions. Only initialized when
+		// SESSIONS_TABLE is set (boundary is enabled for this deployment).
+		var reaper *scheduler.Reaper
+		if cfg.SessionsTable != "" {
+			sessionStore := store.NewSessionStore(dynamoClient, cfg.SessionsTable, cfg.DynamoDBTTLDays)
+			ecsClient := awsecs.New(awsCfg)
+			idleTimeout := time.Duration(cfg.SessionIdleTimeoutSeconds) * time.Second
+			activity := boundaryexec.NewActivityChecker(awsCfg)
+			reaper = scheduler.NewReaper(
+				sessionStore,
+				awsecs.NewReaperAdapter(ecsClient),
+				logger,
+				cfg.TargetCluster,
+				scheduler.WithExecActivity(activity, idleTimeout),
+			)
+			logger.Info("reaper enabled", "sessionsTable", cfg.SessionsTable, "sessionIdleTimeout", idleTimeout)
+		}
+
 		h := handler.New(handler.Deps{
 			Cfg:        cfg,
 			Reconciler: reconciler,
+			Reaper:     reaper,
 			Executor:   exec,
 			ExecStore:  execStore,
 			Logger:     logger,

@@ -10,7 +10,7 @@ func TestNormalizeRoute_WhenKnownPaths_ItShouldReturnStableTemplates(t *testing.
 		{"GET", "/health/", "GET /health"},
 		{"GET", "/version", "GET /version"},
 		{"GET", "/api/v0/trusted-actions", "GET /api/v0/trusted-actions"},
-		{"GET", "/api/v0/trusted-actions/audit", "GET /api/v0/trusted-actions/audit"},
+		{"GET", "/api/v0/audit", "GET /api/v0/audit"},
 		{"GET", "/api/v0/trusted-actions/runs", "GET /api/v0/trusted-actions/runs"},
 		{"POST", "/api/v0/trusted-actions/must_gather/run", "POST /api/v0/trusted-actions/{action}/run"},
 		{"GET", "/api/v0/trusted-actions/get_resource", "GET /api/v0/trusted-actions/{action}"},

@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
 )
 
@@ -57,7 +58,7 @@ func main() {
 	logger = logger.With("execution_id", executionID, "action", actionName)
 	logger.Info("zoa-runner starting")
 
-	actions.SetDeploymentTarget(os.Getenv("ZOA_DEPLOYMENT_TARGET"))
+	actions.SetTargetType(config.TargetTypeFromEnv())
 
 	action, ok := actions.Get(actionName)
 	if !ok {
@@ -96,10 +97,10 @@ func main() {
 	defer cancel()
 
 	execParams := &actions.ExecutionParams{
-		Params:           params,
-		ExecutionID:      executionID,
-		DeploymentTarget: os.Getenv("ZOA_DEPLOYMENT_TARGET"),
-		Logger:           execLogger,
+		Params:      params,
+		ExecutionID: executionID,
+		TargetType:  config.TargetTypeFromEnv(),
+		Logger:      execLogger,
 	}
 
 	// Build Kubernetes clients from in-cluster config (pod has projected SA token)

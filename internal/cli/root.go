@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/spf13/cobra"
 
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/accessclient"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/version"
@@ -20,10 +21,30 @@ type GlobalOptions struct {
 	Region       string
 	OutputFormat output.Format
 
+	// Central SSM region for /zoa/deployments; empty = primary then replica failover.
+	DeploymentsRegion string
+
+	// Direct Access endpoint override (flags only; both required together). Not break-glass (kube/aws).
+	AccessFunctionURL    string
+	AccessInvokerRoleARN string
+
+	// Deployment is set by individual commands (targets positional arg,
+	// session --deployment flag) to enable auto-resolution of the Access
+	// URL and invoker role from SSM. Not a user-facing global flag.
+	Deployment string
+
 	// ClientFactory overrides client creation for testing.
 	// When nil, the real AWS-authenticated client is used.
 	ClientFactory func(*GlobalOptions) (APIClient, error)
 }
+
+const (
+	cmdGroupDiscovery = "discovery"
+	cmdGroupBoundary  = "boundary"
+	cmdGroupTA        = "trusted-actions"
+	cmdGroupAudit     = "audit"
+	cmdGroupOther     = "other"
+)
 
 func NewRootCommand() *cobra.Command {
 	opts := &GlobalOptions{}
@@ -31,18 +52,51 @@ func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "zoa",
 		Short: "ZOA — Zero Operator Access CLI",
-		Long: `ZOA executes audited Trusted Actions against target clusters via the Platform API.
+		Long: `ZOA (Zero Operator Access) — audited SRE operations on Seaplane clusters.
 
-All operations are authenticated with AWS SigV4 using your current credentials.
-Set ZOA_API_URL to your ZOA endpoint (Function URL, API Gateway, or CNAME).`,
+Laptop — discover and open a boundary session (Central AWS login; no ZOA_API_URL):
+  zoa deployments
+  zoa targets us-east-1
+  zoa session start us-east-1 regional --reason ROSAENG-1234
+
+Deployment metadata comes from Central SSM (/zoa/deployments). By default the CLI tries
+us-east-1, then eu-west-1 if the first read errors. Use --deployments-region to pin one
+region (disables failover). Use --access-url and --invoker-role-arn together on targets
+and session only to skip Central deployment SSM autodiscovery (uncommon).
+
+Inside the boundary — Trusted Actions (API Lambda; ZOA_API_URL is set on the task):
+  zoa run <action> --reason ROSAENG-1234 ...
+
+Discovery and session commands resolve the Access Lambda from the deployment name,
+assume the invoker role, and call the Access API. ECS Exec uses scoped credentials
+from Access on join (not deployment-admin roles). Requires session-manager-plugin.
+
+All requests use your default AWS credential chain (SigV4).`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			applyAPIURLFromEnv(opts)
 			name := cmd.Name()
 			if name == "version" || name == "completion" || name == "help" {
 				return nil
 			}
 			if cmd.CalledAs() == "__complete" || cmd.CalledAs() == "__completeNoDesc" {
+				return nil
+			}
+			if catalogCommandUsesOffline(cmd) {
+				return nil
+			}
+			// `zoa deployments` reads SSM directly — no API URL needed.
+			if name == "deployments" {
+				return nil
+			}
+			// `zoa targets <deployment>` auto-resolves from SSM via positional arg.
+			if name == "targets" {
+				return nil
+			}
+			// Session subcommands resolve deployment from positional args or
+			// compound session IDs. Let getClient decide at call time.
+			if cmd.Parent() != nil && cmd.Parent().Name() == "session" {
 				return nil
 			}
 			if opts.APIURL == "" {
@@ -52,38 +106,112 @@ Set ZOA_API_URL to your ZOA endpoint (Function URL, API Gateway, or CNAME).`,
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&opts.APIURL, "api-url", os.Getenv("ZOA_API_URL"), "ZOA endpoint URL: Function URL, API Gateway, or CNAME (env: ZOA_API_URL)")
+	cmd.PersistentFlags().StringVar(&opts.APIURL, "api-url", "", "API Lambda URL for Trusted Actions (env: ZOA_API_URL); not used for session/discovery")
 	cmd.PersistentFlags().StringVar(&opts.Region, "region", os.Getenv("AWS_REGION"), "AWS region override for custom CNAME endpoints (env: AWS_REGION)")
+	cmd.PersistentFlags().StringVar(&opts.DeploymentsRegion, "deployments-region", "", "Pin Central SSM region for /zoa/deployments; empty = try us-east-1 then eu-west-1 on error (deployments, targets, session)")
+	cmd.PersistentFlags().StringVar(&opts.AccessFunctionURL, "access-url", "", "Access Lambda URL; with --invoker-role-arn skips Central deployment SSM autodiscovery (targets and session only)")
+	cmd.PersistentFlags().StringVar(&opts.AccessInvokerRoleARN, "invoker-role-arn", "", "Access invoker role ARN; with --access-url skips Central deployment SSM autodiscovery (targets and session only)")
 	var outputFlag string
 	cmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "table", "Output format: table, wide, json")
 	cobra.OnInitialize(func() {
 		opts.OutputFormat = output.ParseFormat(outputFlag)
 	})
 
+	cmd.AddGroup(
+		&cobra.Group{ID: cmdGroupDiscovery, Title: "Discovery:"},
+		&cobra.Group{ID: cmdGroupBoundary, Title: "Boundary access:"},
+		&cobra.Group{ID: cmdGroupTA, Title: "Trusted Actions:"},
+		&cobra.Group{ID: cmdGroupAudit, Title: "Audit:"},
+		&cobra.Group{ID: cmdGroupOther, Title: "Other:"},
+	)
+
+	deploymentsCmd := newDeploymentsCommand(opts)
+	deploymentsCmd.GroupID = cmdGroupDiscovery
+
+	targetsCmd := newTargetsCommand(opts)
+	targetsCmd.GroupID = cmdGroupDiscovery
+
+	sessionCmd := newSessionCommand(opts)
+	sessionCmd.GroupID = cmdGroupBoundary
+
+	runCmd := newRunCommand(opts)
+	runCmd.GroupID = cmdGroupTA
+
+	getCmd := newGetCommand(opts)
+	getCmd.GroupID = cmdGroupTA
+
+	outputCmd := newOutputCommand(opts)
+	outputCmd.GroupID = cmdGroupTA
+
+	logsCmd := newLogsCommand(opts)
+	logsCmd.GroupID = cmdGroupTA
+
+	downloadCmd := newDownloadCommand(opts)
+	downloadCmd.GroupID = cmdGroupTA
+
+	runsCmd := newRunsCommand(opts)
+	runsCmd.GroupID = cmdGroupTA
+
+	actionsCmd := newActionsCommand(opts)
+	actionsCmd.GroupID = cmdGroupTA
+
+	describeCmd := newDescribeCommand(opts)
+	describeCmd.GroupID = cmdGroupTA
+
+	auditCmd := newAuditCommand(opts)
+	auditCmd.GroupID = cmdGroupAudit
+
+	versionCmd := newVersionCommand(opts)
+	versionCmd.GroupID = cmdGroupOther
+
+	completionCmd := newCompletionCommand()
+	completionCmd.GroupID = cmdGroupOther
+
 	cmd.AddCommand(
-		newRunCommand(opts),
-		newGetCommand(opts),
-		newOutputCommand(opts),
-		newLogsCommand(opts),
-		newDownloadCommand(opts),
-		newRunsCommand(opts),
-		newActionsCommand(opts),
-		newDescribeCommand(opts),
-		newAuditCommand(opts),
-		newVersionCommand(opts),
-		newCompletionCommand(),
+		deploymentsCmd,
+		targetsCmd,
+		sessionCmd,
+		runCmd,
+		getCmd,
+		outputCmd,
+		logsCmd,
+		downloadCmd,
+		runsCmd,
+		actionsCmd,
+		describeCmd,
+		auditCmd,
+		versionCmd,
+		completionCmd,
 	)
 
 	return cmd
+}
+
+// applyAPIURLFromEnv sets opts.APIURL from ZOA_API_URL when --api-url was not passed.
+func applyAPIURLFromEnv(opts *GlobalOptions) {
+	if opts.APIURL == "" {
+		opts.APIURL = os.Getenv("ZOA_API_URL")
+	}
 }
 
 func getClient(opts *GlobalOptions) (APIClient, error) {
 	if opts.ClientFactory != nil {
 		return opts.ClientFactory(opts)
 	}
-	return newRealClient(opts)
+	// When ZOA_API_URL is set, use it directly with the caller's credentials.
+	if opts.APIURL != "" {
+		return newRealClient(opts)
+	}
+	// Otherwise, auto-resolve from the deployment SSM entry: read the Access URL
+	// and invoker role, assume the role transparently, and create the client.
+	if opts.Deployment != "" {
+		return newDeploymentClient(opts)
+	}
+	return nil, fmt.Errorf("ZOA_API_URL not set and no --deployment provided")
 }
 
+// newRealClient creates a client using the caller's existing credentials
+// and the explicit API URL.
 func newRealClient(opts *GlobalOptions) (*client.Client, error) {
 	ctx := context.Background()
 	cfg, err := awsconfig.LoadDefaultConfig(ctx)
@@ -101,6 +229,38 @@ func newRealClient(opts *GlobalOptions) (*client.Client, error) {
 		AccountID: *identity.Account,
 		Operator:  *identity.Arn,
 		Region:    opts.Region,
+	})
+}
+
+// newDeploymentClient auto-resolves the Access URL and invoker role from SSM,
+// assumes the invoker role transparently (preserving the SRE's identity as the
+// session name), and creates a client pointing at the Access Lambda.
+func newDeploymentClient(opts *GlobalOptions) (*client.Client, error) {
+	ctx := context.Background()
+
+	if accessclient.DirectAccessOverrideActive(opts.AccessFunctionURL, opts.AccessInvokerRoleARN) {
+		fmt.Fprintln(os.Stderr, "warning: skipping deployment SSM autodiscovery (direct Access flags set)")
+	}
+
+	info, err := accessclient.ResolveDeployment(ctx, opts.Deployment, opts.DeploymentsRegion, opts.AccessFunctionURL, opts.AccessInvokerRoleARN)
+	if err != nil {
+		return nil, fmt.Errorf("resolving deployment %q: %w", opts.Deployment, err)
+	}
+
+	region := opts.Region
+	if region == "" {
+		region = info.Region
+	}
+
+	operatorARN := info.OperatorARN
+	if operatorARN == "" {
+		return nil, fmt.Errorf("deployment %q: missing operator ARN after invoker assume", opts.Deployment)
+	}
+
+	return client.New(info.AccessURL, info.Credentials, client.Options{
+		AccountID: info.AccountID,
+		Operator:  operatorARN,
+		Region:    region,
 	})
 }
 

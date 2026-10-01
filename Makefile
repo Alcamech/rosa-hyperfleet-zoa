@@ -1,7 +1,8 @@
-.PHONY: all build dist print-version clean install test test-e2e test-e2e-smoke \
+.PHONY: all build dist print-version clean install test test-shell test-e2e test-e2e-smoke \
        test-e2e-zoa test-e2e-zoa-smoke test-e2e-monitoring \
        fmt fmt-check vet lint verify tidy verify-mod \
-       image-lambda image-runner image-push-lambda image-push-runner images-push \
+       image-lambda image-runner image-boundary \
+       image-push-lambda image-push-runner image-push-boundary images-push \
        help
 
 BINARY_NAME = zoa
@@ -13,9 +14,10 @@ CLI_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 HASH_CMD      := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo "shasum -a 256")
 
 # Container images
-IMAGE_REPO        ?= quay.io/rrp-dev-ci/zoa-lambda
-RUNNER_IMAGE_REPO ?= quay.io/rrp-dev-ci/zoa-runner
-IMAGE_TAG         ?= latest
+IMAGE_REPO          ?= quay.io/rrp-dev-ci/zoa-lambda
+RUNNER_IMAGE_REPO   ?= quay.io/rrp-dev-ci/zoa-runner
+BOUNDARY_IMAGE_REPO ?= quay.io/rrp-dev-ci/zoa-boundary
+IMAGE_TAG           ?= latest
 GIT_COMMIT        = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || echo docker)
@@ -32,7 +34,7 @@ $(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod
 $(GINKGO): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/ginkgo github.com/onsi/ginkgo/v2/ginkgo
 
-VERSION     = 0.4.0
+VERSION     = 0.5.0
 VERSION_PKG = github.com/openshift-online/rosa-seaplane-zoa/internal/version
 VERSION_LDFLAGS = -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS         = -ldflags "$(VERSION_LDFLAGS)"
@@ -92,6 +94,13 @@ verify-mod: tidy
 
 test:
 	@go test -race -coverprofile=coverage.out ./...
+
+# Boundary shell scripts (bats-core). CI: install bats-core (e.g. dnf install bats) and run this target.
+BATS ?= bats
+test-shell: build
+	@ZOA_BOUNDARY_BANNER_PATH="$(CURDIR)/boundary/zoa-boundary-banner.sh" \
+	 ZOA_BOUNDARY_BANNER="$(CURDIR)/boundary/zoa-boundary-banner.sh" \
+	 $(BATS) tests/shell/
 
 # test-e2e drives the built zoa CLI against an already-provisioned RC and/or
 # MC environment (ZOA_RC_API_URL / ZOA_MC_API_URL). It is excluded from
@@ -206,6 +215,12 @@ image-runner:
 		-t $(RUNNER_IMAGE_REPO):$(IMAGE_TAG) \
 		-f Containerfile.runner .
 
+image-boundary:
+	$(CONTAINER_RUNTIME) build \
+		--platform linux/amd64 \
+		-t $(BOUNDARY_IMAGE_REPO):$(IMAGE_TAG) \
+		-f Containerfile.boundary .
+
 image-push-lambda: image-lambda
 	$(CONTAINER_RUNTIME) push $(IMAGE_REPO):$(IMAGE_TAG)
 	$(CONTAINER_RUNTIME) tag $(IMAGE_REPO):$(IMAGE_TAG) $(IMAGE_REPO):$(GIT_COMMIT)
@@ -216,10 +231,15 @@ image-push-runner: image-runner
 	$(CONTAINER_RUNTIME) tag $(RUNNER_IMAGE_REPO):$(IMAGE_TAG) $(RUNNER_IMAGE_REPO):$(GIT_COMMIT)
 	$(CONTAINER_RUNTIME) push $(RUNNER_IMAGE_REPO):$(GIT_COMMIT)
 
-# Meta target — build + push both images in one command (dev workflow).
+image-push-boundary: image-boundary
+	$(CONTAINER_RUNTIME) push $(BOUNDARY_IMAGE_REPO):$(IMAGE_TAG)
+	$(CONTAINER_RUNTIME) tag $(BOUNDARY_IMAGE_REPO):$(IMAGE_TAG) $(BOUNDARY_IMAGE_REPO):$(GIT_COMMIT)
+	$(CONTAINER_RUNTIME) push $(BOUNDARY_IMAGE_REPO):$(GIT_COMMIT)
+
+# Meta target — build + push all container images in one command (dev workflow).
 # Each image-push-* target depends on the corresponding image-* build target,
 # so this single command builds and pushes everything.
-images-push: image-push-lambda image-push-runner
+images-push: image-push-lambda image-push-runner image-push-boundary
 
 # =============================================================================
 # Help
@@ -235,6 +255,7 @@ help:
 	@echo ""
 	@echo "Test & Quality:"
 	@echo "  test               Run unit tests with race detection"
+	@echo "  test-shell         Run boundary shell bats tests (requires bats-core; builds zoa CLI first)"
 	@echo "  test-e2e           Run full ZOA e2e + monitoring suite (auto-parallel when both RC+MC are set)"
 	@echo "  test-e2e-smoke     Run smoke ZOA e2e + monitoring smoke (used by rosa-seaplane/-api)"
 	@echo "  test-e2e-zoa       Run full ZOA e2e only (no monitoring)"
@@ -245,8 +266,10 @@ help:
 	@echo "  fmt                Format code"
 	@echo ""
 	@echo "Images:"
-	@echo "  image-lambda       Build zoa-lambda image"
-	@echo "  image-runner       Build zoa-runner image"
-	@echo "  image-push-lambda  Build + push zoa-lambda (:latest + :commit)"
-	@echo "  image-push-runner  Build + push zoa-runner (:latest + :commit)"
-	@echo "  images-push        Build + push both images (single command for dev workflow)"
+	@echo "  image-lambda         Build zoa-lambda image"
+	@echo "  image-runner         Build zoa-runner image"
+	@echo "  image-boundary       Build zoa-boundary image (Containerfile.boundary)"
+	@echo "  image-push-lambda    Build + push zoa-lambda (:latest + :commit)"
+	@echo "  image-push-runner    Build + push zoa-runner (:latest + :commit)"
+	@echo "  image-push-boundary  Build + push zoa-boundary (:latest + :commit)"
+	@echo "  images-push          Build + push lambda, runner, and boundary (dev workflow)"
