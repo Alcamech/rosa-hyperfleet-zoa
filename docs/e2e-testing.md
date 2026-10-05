@@ -55,6 +55,12 @@ Scope, Type), recording rule values populated, no critical alerts in `firing` st
 
 See [docs/observability.md](observability.md) for the metrics catalog and alerting philosophy.
 
+**Runner:** Functional and monitoring e2e use **`ginkgo -vv`** (spec names, steps, `GinkgoWriter`
+output — same style as `rosa-hyperfleet-api` `test-e2e-platform-monitoring`). Monitoring also writes
+**`junit-zoa-monitoring.xml`** to `TEST_OUTPUT_DIR` (`ARTIFACT_DIR` in Prow, `./test-results`
+locally). Suite timeout defaults to **`15m`** (`E2E_MONITORING_TIMEOUT`). Extra ginkgo flags for
+functional tests only: `GINKGO_FLAGS='--focus=must_gather' make test-e2e-zoa`.
+
 ### Metric Lag
 
 The CloudWatch pipeline latency is 5–7 minutes. Monitoring tests run after functional tests
@@ -137,7 +143,7 @@ make ephemeral-zoa-e2e \
 make ephemeral-zoa-e2e-smoke ID=<your-env-id>
 
 # Verbose output
-GINKGO_FLAGS=-ginkgo.v make ephemeral-zoa-e2e ID=<your-env-id>
+GINKGO_FLAGS='--focus=must_gather' make ephemeral-zoa-e2e ID=<your-env-id>
 
 # Only functional tests (skip monitoring)
 ZOA_MAKE_TARGET=test-e2e-zoa make ephemeral-zoa-e2e ID=<your-env-id>
@@ -186,8 +192,7 @@ export RHOBS_API_URL="https://xxxxx.execute-api.us-east-1.amazonaws.com/prod"
 make test-e2e              # full: functional + monitoring
 make test-e2e-smoke        # smoke: functional + monitoring
 make test-e2e-zoa          # full: functional only
-make test-e2e-monitoring   # full: monitoring only
-GINKGO_FLAGS=-ginkgo.v make test-e2e   # verbose output
+make test-e2e-monitoring   # monitoring only (ginkgo -vv + junit)
 ```
 
 RC and MC run in **parallel** automatically (separate `go test` processes, one per target). Each
@@ -228,7 +233,7 @@ via `E2E_HCP_CLUSTER_ID` — not part of the default deep suite yet.
 Run only must_gather specs:
 
 ```bash
-GINKGO_FLAGS='-ginkgo.focus=must_gather' make test-e2e
+GINKGO_FLAGS='--focus=must_gather' make test-e2e-zoa
 ```
 
 ## AWS Credentials
@@ -353,3 +358,4 @@ for the full image override mechanism.
 | Monitoring suite fails                                                         | `RHOBS_API_URL` not set                                          | Export `RHOBS_API_URL`; get it from `make ephemeral-list` in `rosa-hyperfleet`. Use `test-e2e-zoa` to skip monitoring.       |
 | Monitoring specs fail with `403 Forbidden`                                     | SigV4 signing failed — wrong profile or expired session          | Verify with `awscurl --service execute-api --region us-east-1 "$RHOBS_API_URL/api/v1/query?query=up"` using the RC profile  |
 | Monitoring specs timeout on `Eventually` for metrics                           | CloudWatch pipeline lag > 5 min (transient)                      | Retry; if persistent, check YACE pod health: `oc get pod -n cloudwatch-exporter`                                            |
+| Monitoring log shows `panic: test timed out` with only dots (older Makefile)     | Former `go test -timeout 7m` killed the package mid-`Eventually` | Use ginkgo runner on `main`; logs show failing spec; tune `E2E_MONITORING_TIMEOUT` if needed                                |

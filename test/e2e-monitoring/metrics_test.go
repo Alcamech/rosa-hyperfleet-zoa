@@ -3,6 +3,8 @@
 package e2e_monitoring
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -190,6 +192,7 @@ var _ = Describe("ZOA Metrics", func() {
 		assertRuleOnAllClusters := func(rule string, clusters []string, role string) {
 			Expect(clusters).NotTo(BeEmpty(), "expected at least one %s cluster", role)
 			for _, cluster := range clusters {
+				By(fmt.Sprintf("recording rule %s on %s cluster %q", rule, role, cluster))
 				query := recordingRuleValuesQueryForCluster(rule, cluster)
 				Eventually(func() bool {
 					resp := thanosQuery(client, query)
