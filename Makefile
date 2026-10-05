@@ -24,9 +24,13 @@ CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || echo docker)
 TOOLS_DIR     := ./hack/tools
 TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/golangci-lint)
+GINKGO        := $(abspath $(TOOLS_BIN_DIR)/ginkgo)
 
 $(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
+$(GINKGO): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/ginkgo github.com/onsi/ginkgo/v2/ginkgo
 
 VERSION     = 0.4.0
 VERSION_PKG = github.com/openshift-online/rosa-hyperfleet-zoa/internal/version
@@ -98,18 +102,36 @@ test:
 # parallel — sequential within a target, parallel across targets (~2x speedup).
 # Falls back to single-process when only one target is configured.
 #
-# Pass GINKGO_FLAGS for verbose output: GINKGO_FLAGS=-ginkgo.v make test-e2e
+# Extra ginkgo CLI flags for functional e2e (focus, skip, etc.).
 GINKGO_FLAGS ?=
 ZOA_BIN_ABS   = $(abspath $(BUILD_DIR))/$(BINARY_NAME)
-E2E_COMMON    = ZOA_BIN=$(ZOA_BIN_ABS) go test -tags e2e ./test/e2e/... -v $(GINKGO_FLAGS)
+
+# Functional e2e via ginkgo -vv (same visibility as rosa-hyperfleet-api platform monitoring).
+# rosa-hyperfleet ci/e2e-tests.sh invokes make test-e2e / test-e2e-smoke unchanged.
+E2E_GINKGO_PKG = ./test/e2e
+E2E_GINKGO_RUN = ZOA_BIN=$(ZOA_BIN_ABS) $(GINKGO) --tags=e2e -vv $(GINKGO_FLAGS)
+
+# Monitoring e2e: ginkgo -vv + JUnit (ARTIFACT_DIR in Prow, ./test-results locally).
+TEST_OUTPUT_DIR        ?= $(or $(ARTIFACT_DIR),./test-results)
+E2E_MONITORING_TIMEOUT ?= 15m
+E2E_MONITORING_JUNIT   ?= junit-zoa-monitoring.xml
+
+define run_e2e_monitoring
+	@mkdir -p $(TEST_OUTPUT_DIR)
+	$(GINKGO) --tags=e2e_monitoring -vv \
+		--timeout=$(E2E_MONITORING_TIMEOUT) \
+		--junit-report=$(E2E_MONITORING_JUNIT) \
+		--output-dir=$(TEST_OUTPUT_DIR) \
+		./test/e2e-monitoring
+endef
 
 define run_e2e_parallel
 	@rc_exit=0; mc_exit=0; \
 	if [ -n "$(ZOA_RC_API_URL)" ] && [ -n "$(ZOA_MC_API_URL)" ]; then \
 		set -o pipefail; \
 		echo "Running RC and MC in parallel..."; \
-		(ZOA_MC_API_URL= $(E2E_COMMON) $(1) 2>&1 | sed 's/^/[RC] /') & rc_pid=$$!; \
-		(ZOA_RC_API_URL= $(E2E_COMMON) $(1) 2>&1 | sed 's/^/[MC] /') & mc_pid=$$!; \
+		(ZOA_MC_API_URL= $(E2E_GINKGO_RUN) $(1) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[RC] /') & rc_pid=$$!; \
+		(ZOA_RC_API_URL= $(E2E_GINKGO_RUN) $(1) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[MC] /') & mc_pid=$$!; \
 		wait $$rc_pid || rc_exit=$$?; \
 		wait $$mc_pid || mc_exit=$$?; \
 		if [ $$rc_exit -ne 0 ] || [ $$mc_exit -ne 0 ]; then \
@@ -117,14 +139,14 @@ define run_e2e_parallel
 		fi; \
 		echo "PASS: both RC and MC succeeded"; \
 	else \
-		$(E2E_COMMON) $(1); \
+		$(E2E_GINKGO_RUN) $(1) $(E2E_GINKGO_PKG); \
 	fi
 endef
 
-test-e2e: build
-	$(call run_e2e_parallel,-timeout 20m)
+test-e2e: build $(GINKGO)
+	$(call run_e2e_parallel,--timeout=20m)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
-	@go test -tags e2e_monitoring ./test/e2e-monitoring/... -v -timeout 7m $(GINKGO_FLAGS)
+	$(call run_e2e_monitoring)
 
 # test-e2e-smoke runs only the specs labeled "smoke" — cheap, --dry-run/read-only
 # coverage (discovery + one read TA + one write TA dry-run) meant to be run
@@ -132,23 +154,23 @@ test-e2e: build
 # changes can't silently break ZOA without adding meaningful time to those
 # runs. Full validation (including real delete_pod/rollout_restart execution)
 # is `make test-e2e`, exercised only from this repo's own on-demand-e2e/nightly.
-test-e2e-smoke: build
-	$(call run_e2e_parallel,-timeout 5m -ginkgo.label-filter=smoke)
+test-e2e-smoke: build $(GINKGO)
+	$(call run_e2e_parallel,--timeout=5m --label-filter=smoke)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
-	@go test -tags e2e_monitoring ./test/e2e-monitoring/... -v -timeout 7m $(GINKGO_FLAGS)
+	$(call run_e2e_monitoring)
 
 # test-e2e-zoa runs only the ZOA functional e2e suite (no monitoring).
-test-e2e-zoa: build
-	$(call run_e2e_parallel,-timeout 20m)
+test-e2e-zoa: build $(GINKGO)
+	$(call run_e2e_parallel,--timeout=20m)
 
 # test-e2e-zoa-smoke runs only the ZOA functional smoke specs (no monitoring).
-test-e2e-zoa-smoke: build
-	$(call run_e2e_parallel,-timeout 5m -ginkgo.label-filter=smoke)
+test-e2e-zoa-smoke: build $(GINKGO)
+	$(call run_e2e_parallel,--timeout=5m --label-filter=smoke)
 
 # test-e2e-monitoring runs only the observability validation suite.
 # Requires RHOBS_API_URL (fails if unset). See docs/observability.md.
-test-e2e-monitoring:
-	@go test -tags e2e_monitoring ./test/e2e-monitoring/... -v -timeout 7m $(GINKGO_FLAGS)
+test-e2e-monitoring: $(GINKGO)
+	$(call run_e2e_monitoring)
 
 # =============================================================================
 # Code Quality
@@ -218,7 +240,7 @@ help:
 	@echo "  test-e2e-zoa       Run full ZOA e2e only (no monitoring)"
 	@echo "  test-e2e-zoa-smoke Run smoke ZOA e2e only (no monitoring)"
 	@echo "  test-e2e-monitoring Run monitoring validation only (requires RHOBS_API_URL)"
-	@echo "                     Verbose: GINKGO_FLAGS=-ginkgo.v make test-e2e"
+	@echo "                     ginkgo -vv + junit; override E2E_MONITORING_TIMEOUT, TEST_OUTPUT_DIR"
 	@echo "  verify             fmt-check + vet + lint"
 	@echo "  fmt                Format code"
 	@echo ""

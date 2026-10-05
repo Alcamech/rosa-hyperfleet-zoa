@@ -39,6 +39,7 @@ Thumbs.db
 
 # Temporary files
 tmp/
+test-results/
 
 # ZOA CLI downloaded artifacts (auto-named by zoa download / zoa run --wait)
 zoa-*-output.*
