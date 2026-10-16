@@ -33,36 +33,36 @@ naming convention: `aws_zoa_<metric_snake_case>_<statistic>`.
 as a single token. For example, `GCLastRun` becomes `gclast_run` (not
 `gc_last_run`). This affects all GC-prefixed metrics:
 
-| CloudWatch name             | Prometheus name                              |
-| --------------------------- | -------------------------------------------- |
-| `GCLastRun`                 | `aws_zoa_gclast_run_maximum`                 |
-| `GCDuration`                | `aws_zoa_gcduration_average`                 |
-| `GCErrors`                  | `aws_zoa_gcerrors_sum`                       |
-| `GCCleanedResources`        | `aws_zoa_gccleaned_resources_sum`            |
-| `ReconcilerLastRun`         | `aws_zoa_reconciler_last_run_maximum`        |
-| `ReconcilerDuration`        | `aws_zoa_reconciler_duration_p99`            |
-| `ReconcilerErrors`          | `aws_zoa_reconciler_errors_sum`              |
-| `ExecutionCount`            | `aws_zoa_execution_count_sum`                |
-| `ExecutionDuration`         | `aws_zoa_execution_duration_p99`             |
-| `HttpRequestCount`          | `aws_zoa_http_request_count_sum`             |
-| `HttpRequestDuration`       | `aws_zoa_http_request_duration_p99`          |
-| `RejectionCount`            | `aws_zoa_rejection_count_sum`                |
-| `CircuitBreakerStateChange` | `aws_zoa_circuit_breaker_state_change_sum`   |
+| CloudWatch name             | Prometheus name                            |
+| --------------------------- | ------------------------------------------ |
+| `GCLastRun`                 | `aws_zoa_gclast_run_maximum`               |
+| `GCDuration`                | `aws_zoa_gcduration_average`               |
+| `GCErrors`                  | `aws_zoa_gcerrors_sum`                     |
+| `GCCleanedResources`        | `aws_zoa_gccleaned_resources_sum`          |
+| `ReconcilerLastRun`         | `aws_zoa_reconciler_last_run_maximum`      |
+| `ReconcilerDuration`        | `aws_zoa_reconciler_duration_p99`          |
+| `ReconcilerErrors`          | `aws_zoa_reconciler_errors_sum`            |
+| `ExecutionCount`            | `aws_zoa_execution_count_sum`              |
+| `ExecutionDuration`         | `aws_zoa_execution_duration_p99`           |
+| `HttpRequestCount`          | `aws_zoa_http_request_count_sum`           |
+| `HttpRequestDuration`       | `aws_zoa_http_request_duration_p99`        |
+| `RejectionCount`            | `aws_zoa_rejection_count_sum`              |
+| `CircuitBreakerStateChange` | `aws_zoa_circuit_breaker_state_change_sum` |
 
 ### Emit Functions
 
 Each `Emit*` function in `pkg/metrics/routes.go` produces one EMF log line
 with specific dimensions:
 
-| Function                        | Dimensions                                                   | Metrics emitted                                        | When emitted                    |
-| ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------- |
-| `EmitHTTPRequest`               | Cluster, HandlerMode, Method, RouteTemplate, StatusClass     | HttpRequestCount, HttpRequestDuration                  | Every API request               |
-| `EmitRejection`                 | Cluster, Reason                                              | RejectionCount                                         | Cooldown, circuit breaker, etc. |
-| `EmitExecution`                 | Cluster, Action, Status, Mode, Scope, Type                   | ExecutionCount, ExecutionDuration                       | Terminal TA state transition    |
-| `EmitGCCleaned`                 | Cluster, ResourceType                                        | GCCleanedResources                                     | Each resource cleaned by GC     |
-| `EmitCircuitBreakerStateChange` | Cluster, State                                               | CircuitBreakerStateChange                              | Circuit breaker open/close      |
-| `EmitReconciler`                | Cluster, HandlerMode                                         | ReconcilerDuration, ReconcilerErrors, ReconcilerLastRun | Every reconciler tick           |
-| `EmitGC`                        | Cluster, HandlerMode                                         | GCDuration, GCErrors, GCLastRun                        | Every GC tick                   |
+| Function                        | Dimensions                                               | Metrics emitted                                         | When emitted                    |
+| ------------------------------- | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------- |
+| `EmitHTTPRequest`               | Cluster, HandlerMode, Method, RouteTemplate, StatusClass | HttpRequestCount, HttpRequestDuration                   | Every API request               |
+| `EmitRejection`                 | Cluster, Reason                                          | RejectionCount                                          | Cooldown, circuit breaker, etc. |
+| `EmitExecution`                 | Cluster, Action, Status, Mode, Scope, Type               | ExecutionCount, ExecutionDuration                       | Terminal TA state transition    |
+| `EmitGCCleaned`                 | Cluster, ResourceType                                    | GCCleanedResources                                      | Each resource cleaned by GC     |
+| `EmitCircuitBreakerStateChange` | Cluster, State                                           | CircuitBreakerStateChange                               | Circuit breaker open/close      |
+| `EmitReconciler`                | Cluster, HandlerMode                                     | ReconcilerDuration, ReconcilerErrors, ReconcilerLastRun | Every reconciler tick           |
+| `EmitGC`                        | Cluster, HandlerMode                                     | GCDuration, GCErrors, GCLastRun                         | Every GC tick                   |
 
 ### Cost Model
 
@@ -82,16 +82,16 @@ $2–3/month per cluster.
 Recording rules, alerting rules, and the Grafana dashboard are defined in the
 [`rosa-seaplane`](https://github.com/openshift-online/rosa-seaplane) repo:
 
-| What                | Source of truth |
-| ------------------- | --------------- |
+| What                       | Source of truth                                                                                                                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Recording rules and alerts | [`argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml) |
-| Dashboard           | [`argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json) |
-| YACE scrape config (RC) | [`argocd/config/regional-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/cloudwatch-exporter/values.yaml) |
-| YACE scrape config (MC) | [`argocd/config/management-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/management-cluster/cloudwatch-exporter/values.yaml) |
+| Dashboard                  | [`argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json)     |
+| YACE scrape config (RC)    | [`argocd/config/regional-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/cloudwatch-exporter/values.yaml)     |
+| YACE scrape config (MC)    | [`argocd/config/management-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/management-cluster/cloudwatch-exporter/values.yaml) |
 
 Refer to those files for the definitive list of rule names, alert thresholds,
 `for` durations, and PromQL expressions. Below is the design philosophy — the
-*why* behind the choices, which changes less often than the *what*.
+_why_ behind the choices, which changes less often than the _what_.
 
 ### Recording Rules
 
@@ -146,7 +146,9 @@ Dashboard variables: `$datasource`, `$cluster` (RC/MC), `$action` (TA name).
 
 Each ZOA Lambda function writes structured JSON logs to CloudWatch Logs. These
 are the primary tool for debugging individual executions, reconciler ticks,
-and GC runs.
+GC runs, Access session handling, and reaper ticks.
+
+**Boundary ECS Exec transcripts** use separate log groups (`/ecs/<cluster_id>/zoa-boundary/ssm-sessions`). Operators retrieve them via Grafana — see [boundary session logging](boundary/session-logging.md#viewing-session-logs-in-grafana-explorer).
 
 ### Log Group Naming
 

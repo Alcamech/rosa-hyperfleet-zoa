@@ -1,107 +1,121 @@
 # rosa-seaplane-zoa
 
-This file provides guidance to AI coding assistants when working with this repository.
+Guidance for AI coding assistants working in this repository.
 
-## Project Overview
+## What this repo is
 
-**rosa-seaplane-zoa** is a serverless Zero Operator Access (ZOA) implementation for the ROSA HCP Hyperfleet platform. It contains the API server, Lambda execution engine, CLI, and all Trusted Action implementations. ZOA ensures operators have no persistent, interactive, or unaudited access to customer infrastructure — all operational actions execute through pre-defined, audited Trusted Actions.
+**rosa-seaplane-zoa** implements **Zero Operator Access (ZOA)** for ROSA HCP Seaplane: CLI, Lambdas, boundary container, Trusted Actions (TAs), and operator docs. Operators do **not** use `kubectl` or `zoa run` on the laptop — they **`zoa session start`**, work in **ECS Exec** inside an audited **boundary** task, then run TAs from there.
 
-**Tech stack**: Go 1.26, Cobra, AWS SDK v2, AWS Lambda, DynamoDB, S3, EventBridge, Kubernetes client-go
+**Tech stack**: Go 1.26, Cobra, AWS SDK v2, AWS Lambda (container images), DynamoDB, S3, EventBridge, ECS Fargate, Kubernetes client-go.
 
-## Architecture
+**Platform Terraform** (Lambdas, DynamoDB, ECS, IAM, EventBridge) lives in [rosa-seaplane](https://github.com/openshift-online/rosa-seaplane) (`terraform/modules/zoa`, `zoa-lambda`, `zoa-access`). **Behavior and API/CLI contracts** live here.
 
-ZOA deploys **2 Lambda functions per target VPC** (same binary, `HANDLER_MODE` env var), with failure domain isolation per cluster:
+## Three pillars (read `README.md` for detail)
 
-- **API Lambda** — Function URL with native Go streaming, handles CLI requests, sync TA execution
-- **Worker Lambda** — EventBridge-triggered, handles reconciler, GC, async TA execution via self-invocation
+| Pillar              | Status  | Role                                                                          |
+| ------------------- | ------- | ----------------------------------------------------------------------------- |
+| **Boundary**        | Shipped | Ephemeral ECS Fargate shell per target VPC; entry point for all operator work |
+| **Trusted Actions** | Shipped | Audited `zoa run` from inside the boundary; ephemeral per-execution RBAC      |
+| **Break-glass**     | Planned | Emergency scoped access from boundary — see `docs/break-glass/README.md`      |
 
-Per-VPC deployment means a failure in one cluster's ZOA cannot cascade to another. The entire data path (Lambda, DynamoDB, S3, EventBridge, KMS) is serverless with zero persistent compute.
+## Architecture (short)
 
-Execution flow: CLI → SigV4-signed HTTPS → API Lambda Function URL → DynamoDB + EKS + S3
+**One Lambda image, three modes** (`HANDLER_MODE` on `zoa-lambda`):
 
-## Key Directories
+| Mode       | Where                         | Caller                             | Purpose                                                |
+| ---------- | ----------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| **access** | RC account, **no VPC**        | SRE laptop (SigV4)                 | Sessions, targets, `ecs:RunTask` for boundary          |
+| **api**    | Per target VPC (RC + each MC) | Boundary task role (`ZOA_API_URL`) | TA dispatch, runs, audit, streaming downloads          |
+| **worker** | Per target VPC                | EventBridge + self-invoke          | Reconciler, GC, **session reaper**, async TA execution |
 
-| Path | Purpose |
-|------|---------|
-| `cmd/zoa/` | CLI binary entry point |
-| `cmd/zoa-lambda/` | Lambda function entry point (api + worker modes) |
-| `cmd/zoa-runner/` | Async Job runner (K8s Job entrypoint) |
-| `internal/cli/` | Cobra commands + APIClient interface for testability |
-| `internal/client/` | SigV4-signed HTTP client (talks to Lambda Function URL) |
-| `internal/output/` | Table + JSON formatting |
-| `internal/eksauth/` | EKS token generation (presigned STS URL) |
-| `pkg/actions/` | Go TA framework: interface, registry, implementations, conformance tests |
-| `pkg/api/` | HTTP route handlers (dispatch, list, get, audit, version) |
-| `pkg/handler/` | Lambda event router (HTTP events, scheduled events, execution events) |
-| `pkg/executor/` | K8s SA/RBAC creation, sync execution (impersonation), async Job dispatch |
-| `pkg/store/` | DynamoDB persistence (ExecutionStore, AuditStore interfaces) |
-| `pkg/scheduler/` | Reconciler and GC (EventBridge-triggered worker tasks) |
-| `pkg/config/` | Env-var based configuration with per-mode validation |
-| `pkg/metrics/` | CloudWatch EMF metric emission |
-| `Containerfile` | Lambda container image (UBI-minimal + zoa-lambda) |
-| `Containerfile.runner` | Async runner image (UBI9 + zoa-runner + zoa CLI) |
+**Three container images** from this repo: `zoa-lambda`, `zoa-runner` (async Jobs on EKS), `zoa-boundary` (operator shell).
 
-## Build & Test Commands
+**Typical flows**
+
+- **Session**: Laptop → Access Function URL → DynamoDB + ECS boundary → ECS Exec transcript (CloudWatch).
+- **TA (sync)**: Boundary → API Function URL → identity bridge (task ARN → session → operator) → EKS impersonation → inline response.
+- **TA (async)**: API dispatches Job → `zoa-runner` uploads to S3 → Worker reconciles.
+
+Failure domains are **per target VPC** for API/Worker/boundary; **central Access** for laptop session APIs. See `README.md` (Failure Domains).
+
+## Documentation map
+
+Start at **`docs/README.md`**. Do not duplicate long architecture in agent prompts — link instead.
+
+| Area                        | Path                                                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator workflow           | `docs/guides/operator-workflow.md`                                                                                                                 |
+| Boundary                    | `docs/boundary/` — architecture, container image, identity bridge, session logging, session reaper                                                 |
+| Identity bridge             | `docs/boundary/identity-bridge.md`                                                                                                          |
+| Session reaper / logging    | `docs/boundary/session-reaper.md`, `docs/boundary/session-logging.md`                                                                |
+| Laptop deployment discovery | `docs/guides/deployments-discovery.md`                                                                                                             |
+| Lambda model                | `docs/architecture/lambda-model.md`, `docs/architecture/implementation.md`                                                                         |
+| API / CLI                   | `docs/api-reference.md`, `docs/cli-reference.md`                                                                                                   |
+| TAs                         | `docs/trusted-actions.md`                                                                                                                          |
+| E2E / dev                   | `docs/e2e-testing.md`, `docs/development.md`                                                                                                       |
+| Platform ADR                | [rosa-seaplane `docs/design/zoa-architecture.md`](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md) |
+
+## Key directories
+
+| Path                                                                     | Purpose                                                       |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `cmd/zoa/`                                                               | CLI (`session`, `run`, `audit`, …)                            |
+| `cmd/zoa-lambda/`                                                        | Lambda entry (`HANDLER_MODE=api\|worker\|access`)             |
+| `cmd/zoa-runner/`                                                        | Async Job entrypoint in target EKS                            |
+| `internal/cli/`                                                          | Cobra + `APIClient` / Access client for tests                 |
+| `internal/client/`                                                       | SigV4 HTTP to Function URLs                                   |
+| `pkg/api/`                                                               | HTTP routes: TA plane (`api`) and session plane (`access.go`) |
+| `pkg/handler/`                                                           | Lambda event router (HTTP, schedules, execute events)         |
+| `pkg/executor/`                                                          | SA/RBAC, sync impersonation, async Job dispatch               |
+| `pkg/store/`                                                             | DynamoDB: executions, audit, **sessions**, targets            |
+| `pkg/scheduler/`                                                         | Reconciler, GC, **reaper** (`reaper.go`)                      |
+| `pkg/actions/`                                                           | TA framework + implementations; `conformance_test.go` gate    |
+| `pkg/boundaryexec/`, `pkg/accesscross/`, `pkg/awsecs/`, `pkg/execcreds/` | Boundary / ECS Exec / cross-account session helpers           |
+| `pkg/config/`                                                            | Env config; validates mode-specific required vars             |
+| `Containerfile`                                                          | `zoa-lambda` image                                            |
+| `Containerfile.runner`                                                   | `zoa-runner` image                                            |
+| `Containerfile.boundary`                                                 | `zoa-boundary` image                                          |
+
+## Build & test
 
 ```bash
 make all              # verify → test → build
-make build            # Build bin/zoa (CLI only)
-make test             # Unit tests (go test -race -coverprofile)
-make lint             # golangci-lint
-make verify           # fmt-check + vet + lint (CI-safe, read-only)
-make fmt              # Format code
-make image-lambda        # Build zoa-lambda container image
-make image-runner        # Build zoa-runner container image
-make image-push-lambda   # Build + push zoa-lambda (latest + git commit tag)
-make image-push-runner   # Build + push zoa-runner (latest + git commit tag)
-make images-push         # Build + push both images (dev workflow)
+make build            # bin/zoa only
+make test             # go test -race
+make verify           # fmt-check + vet + lint
+make image-lambda     # make image-runner, image-boundary
+make images-push      # dev: push lambda + runner + boundary to Quay (see Makefile)
 ```
 
-## Important Context
+## Important invariants
 
-- **Environment**: Set `ZOA_API_URL` to the Lambda Function URL (not API Gateway)
-- **Trusted Actions**: Go packages in `pkg/actions/` implementing the `Action` interface, self-registering via `init()`
-- **Conformance gate**: `pkg/actions/conformance_test.go` enforces metadata, RBAC, naming, timeout, and test coverage on every PR
-- **Two execution modes**: sync (in-Lambda, ephemeral SA/RBAC) and async (K8s Job with STS Secret)
-- **Two scopes**: `kube-api` (K8s operations, per-execution SA impersonation) and `aws-api` (AWS operations, STS AssumeRole)
-- **Security invariant**: `get_secret` TA rejects access to HCP namespaces (`cluster-*`)
-- **Conventional commits**: Use `feat:`, `fix:`, `docs:`, `chore:`, `test:` prefixes
-- **Three-layer timeouts**: Lambda ceiling → code deadline (env var) → per-TA timeout (Go code)
-- **Architecture docs**: Live in `docs/` (self-contained), not in the seaplane repo
+- **Laptop**: Access Lambda URL (SSM autodiscovery / `zoa` config) — not `ZOA_API_URL`.
+- **Boundary**: `ZOA_API_URL` points at **API** Lambda in that VPC; optional `ZOA_REASON` default for `zoa run`.
+- **TAs**: `pkg/actions/` register via `init()`; conformance enforces naming, RBAC, timeouts, tests.
+- **Scopes**: `kube-api` (RBAC required) vs `aws-api` (no RBAC in metadata).
+- **Modes**: sync (in-Lambda) vs async (K8s Job + runner).
+- **Security**: no secrets in `cluster-*` namespaces (`get_secret`); no credential logging; STS + SA impersonation only.
+- **Timeouts**: Lambda ceiling → `EXECUTION_DEADLINE_SECONDS` → per-TA timeout in code.
+- **Commits**: conventional `feat:`, `fix:`, `docs:`, `chore:`, `test:` (Jira prefix when applicable).
 
-## Development Guidelines
+## Agent usage
 
-### Agent Usage
+- **Architect**: TA RBAC patterns, boundary/session security, cross-account access design.
+- **Code-reviewer**: CLI and API handler changes.
+- **Adversary**: `pkg/executor/`, `pkg/api/`, `pkg/actions/`, `pkg/accesscross/`, session/boundary paths.
 
-- **Use the architect agent** for changes to Trusted Action RBAC patterns or security-sensitive code
-- **Use the code-reviewer agent** for CLI code quality review
-- **Use adversary agent** for security review of changes touching `pkg/executor/`, `pkg/api/`, or `pkg/actions/`
+## Tests
 
-### Testing
+- Test names: `"When ... it should ..."`.
+- Mocks for AWS interfaces in `pkg/store/`, `pkg/executor/`; `k8s.io/client-go/kubernetes/fake` for K8s.
+- Run `make test` before push; conformance tests are a PR gate.
 
-- Use `"When ... it should ..."` format for test case names
-- Use interface mocks for AWS SDK clients (DynamoDBAPI, S3API in `pkg/store/`, `pkg/executor/`)
-- Use `k8s.io/client-go/kubernetes/fake` for K8s unit tests
-- Run `make test` before pushing (race detection enabled)
-- Conformance tests in `pkg/actions/conformance_test.go` are a PR gate
+## Related repositories
 
-### Security Guidelines
+| Repository                                                                     | Contents                                                                         |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| [rosa-seaplane](https://github.com/openshift-online/rosa-seaplane)             | ZOA/boundary Terraform, image tags in `config/defaults.yaml`, rendered `deploy/` |
+| [rosa-seaplane-api](https://github.com/openshift-online/rosa-seaplane-api) | Platform API / operator (separate from ZOA)                                      |
 
-- **Never** access secrets in `cluster-*` namespaces from TAs
-- **Always** declare least-privilege RBAC in TA metadata
-- **Never** hardcode credentials — use STS AssumeRole for AWS, SA impersonation for K8s
-- **Never** log sensitive data (tokens, credentials, customer content)
-
-### Trusted Action Conventions
-
-- Scope: `kube-api` (requires RBAC declaration) or `aws-api` (must NOT declare RBAC)
-- Type: `read` (no cooldown) or `write` (requires cooldown > 0 and DryRunAction)
-- Names: snake_case (enforced by conformance test)
-- Timeout: must not exceed `EXECUTION_DEADLINE_SECONDS` (default 295s)
-- Each TA must have a corresponding test file
-
-## Related Repositories
-
-| Repository | What it contains |
-|---|---|
-| [rosa-seaplane](https://github.com/openshift-online/rosa-seaplane) | Terraform infra (Lambda, DynamoDB, S3, KMS, IAM, EventBridge), ArgoCD configs |
+When bumping images for environments: commit in **this** repo, then set `zoa_lambda_image_tag`, `zoa_runner_image_tag`, and `zoa_boundary_image_tag` in rosa-seaplane `config/` and run `uv run scripts/render.py`.
+`.

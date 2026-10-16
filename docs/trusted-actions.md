@@ -126,10 +126,10 @@ func TestMyAction(t *testing.T) {
 
 ## Scope
 
-| Scope | Client Available | Use Case |
-|-------|-----------------|----------|
+| Scope      | Client Available                            | Use Case             |
+| ---------- | ------------------------------------------- | -------------------- |
 | `kube-api` | `params.KubeClient`, `params.DynamicClient` | Kubernetes resources |
-| `aws-api` | `params.AWSConfig` | AWS SDK calls |
+| `aws-api`  | `params.AWSConfig`                          | AWS SDK calls        |
 
 ## Safety Guidelines
 
