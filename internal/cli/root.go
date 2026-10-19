@@ -10,9 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/version"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/version"
 )
 
 type GlobalOptions struct {

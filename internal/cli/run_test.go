@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 func TestBuildParams_WhenClusterIDSet_ItShouldIncludeClusterID(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
 )
 
 func TestShowLogs_WhenLogsAvailable_ItShouldReturnNilError(t *testing.T) {

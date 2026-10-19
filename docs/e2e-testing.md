@@ -16,7 +16,7 @@ ZOA has two independent test suites that compose via Makefile targets:
 Both suites use **Ginkgo labels** to define scope:
 
 - **Smoke** (`Label("smoke")`): minimal subset that validates core health in ~2 min.
-  Runs on every PR via consumer repos (`rosa-hyperfleet`, `rosa-hyperfleet-api`).
+  Runs on every PR via consumer repos (`rosa-seaplane`, `rosa-seaplane-api`).
 - **Full** (all specs): comprehensive coverage. Runs on nightlies and ZOA's own `on-demand-e2e`.
 
 ### Makefile Targets
@@ -56,7 +56,7 @@ Scope, Type), recording rule values populated, no critical alerts in `firing` st
 See [docs/observability.md](observability.md) for the metrics catalog and alerting philosophy.
 
 **Runner:** Functional and monitoring e2e use **`ginkgo -vv`** (spec names, steps, `GinkgoWriter`
-output — same style as `rosa-hyperfleet-api` `test-e2e-platform-monitoring`). Monitoring also writes
+output — same style as `rosa-seaplane-api` `test-e2e-platform-monitoring`). Monitoring also writes
 **`junit-zoa-monitoring.xml`** to `TEST_OUTPUT_DIR` (`ARTIFACT_DIR` in Prow, `./test-results`
 locally). Suite timeout defaults to **`15m`** (`E2E_MONITORING_TIMEOUT`). Extra ginkgo flags for
 functional tests only: `GINKGO_FLAGS='--focus=must_gather' make test-e2e-zoa`.
@@ -96,7 +96,7 @@ The recommended approach is to push your changes to a branch and let Tekton buil
 
 ```bash
 # 1. Push your code to trigger PR image build
-cd rosa-hyperfleet-zoa
+cd rosa-seaplane-zoa
 git push origin HEAD:feat/my-feature   # or push to main
 
 # 2. Open a PR on GitHub in normal mode (NOT draft) with hold label
@@ -117,8 +117,8 @@ gh pr comment <pr-number> --body "/ok-to-test"
 # 5. Get your commit SHA
 git rev-parse --short HEAD   # e.g. 1fa64b3
 
-# 6. Configure ephemeral override in rosa-hyperfleet
-cd ../rosa-hyperfleet
+# 6. Configure ephemeral override in rosa-seaplane
+cd ../rosa-seaplane
 mkdir -p .ephemeral-env
 
 # Create override config pointing to your PR images
@@ -151,7 +151,7 @@ make ephemeral-resync ID=<your-env-id>
 # 8. Run e2e tests (picks up your code changes via the new Lambda)
 make ephemeral-zoa-e2e ID=<your-env-id> \
   ZOA_REF=feat/my-feature \
-  ZOA_REPO=https://github.com/openshift-online/rosa-hyperfleet-zoa.git
+  ZOA_REPO=https://github.com/openshift-online/rosa-seaplane-zoa.git
 ```
 
 ### Alternative: Manual Image Build and Push
@@ -160,14 +160,14 @@ If you need to test uncommitted changes or don't have PR access, you can build a
 
 ```bash
 # 1. Build + push both images to Quay (requires quay.io login and write access)
-cd rosa-hyperfleet-zoa
+cd rosa-seaplane-zoa
 podman login quay.io
 make images-push IMAGE_REPO=quay.io/your-username/zoa-lambda \
                 RUNNER_IMAGE_REPO=quay.io/your-username/zoa-runner \
                 IMAGE_TAG=test-my-feature
 
 # 2. Configure ephemeral override to use your images
-cd ../rosa-hyperfleet
+cd ../rosa-seaplane
 mkdir -p .ephemeral-env
 
 cat > .ephemeral-env/defaults.yaml <<EOF
@@ -208,7 +208,7 @@ need the tests to use your branch (via `ZOA_REF`).
 | Scenario | Image management |
 | --- | --- |
 | **CI `on-demand-e2e`** (ZOA PR) | Automatic — ci-operator builds images, pushes to Quay, and overrides config before deploy |
-| **CI `nightly-ephemeral`** | None — tests whatever tags are already pinned in `rosa-hyperfleet@main` config |
+| **CI `nightly-ephemeral`** | None — tests whatever tags are already pinned in `rosa-seaplane@main` config |
 | **Local dev testing** | **Manual** — you build, push, configure, and resync (steps above) |
 
 ## Running the Tests
@@ -217,20 +217,20 @@ Both suites drive against a real, already-provisioned environment. They never ne
 environment shape beyond "give me a URL" — the same suites run unmodified against a dev-account
 ephemeral env, a CI ephemeral env, or (in principle) a standing integration environment.
 
-### From `rosa-hyperfleet` (Recommended)
+### From `rosa-seaplane` (Recommended)
 
 You need an ephemeral environment already provisioned (`make ephemeral-provision` in that repo —
-see [`rosa-hyperfleet/docs/development-environment.md`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/docs/development-environment.md)).
+see [`rosa-seaplane/docs/development-environment.md`](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/development-environment.md)).
 
 ```bash
-cd rosa-hyperfleet
+cd rosa-seaplane
 
-# Full suite (functional + monitoring) — clones rosa-hyperfleet-zoa@main inside the test container.
+# Full suite (functional + monitoring) — clones rosa-seaplane-zoa@main inside the test container.
 # AWS credentials (rrp-rc, rrp-mc profiles) and RHOBS_API_URL are set up automatically.
 make ephemeral-zoa-e2e \
   ID=<your-env-id> \
   ZOA_REF=my-feature-branch \
-  ZOA_REPO=https://github.com/my-fork/rosa-hyperfleet-zoa.git
+  ZOA_REPO=https://github.com/my-fork/rosa-seaplane-zoa.git
 
 # Smoke only (~2min)
 make ephemeral-zoa-e2e-smoke ID=<your-env-id>
@@ -262,7 +262,7 @@ If you are iterating on test code and want fast feedback without container overh
 you can run the suite directly against an existing ephemeral environment. You need the
 Lambda Function URLs and AWS credentials for both the RC and MC accounts.
 
-**Step 1 — Get the Lambda URLs.** From the `rosa-hyperfleet` checkout:
+**Step 1 — Get the Lambda URLs.** From the `rosa-seaplane` checkout:
 
 ```bash
 make ephemeral-list ID=<your-env-id>
@@ -274,7 +274,7 @@ make ephemeral-list ID=<your-env-id>
 (the names used inside CI containers). Override with `ZOA_RC_AWS_PROFILE` and `ZOA_MC_AWS_PROFILE`:
 
 ```bash
-cd rosa-hyperfleet-zoa
+cd rosa-seaplane-zoa
 
 export ZOA_RC_API_URL="https://yyyy.lambda-url.us-east-1.on.aws/"
 export ZOA_MC_API_URL="https://zzzz.lambda-url.us-east-1.on.aws/"
@@ -379,40 +379,40 @@ This ensures:
 
 | Scenario                                                   | Who manages credentials                                                                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make ephemeral-zoa-e2e ID=...` (from `rosa-hyperfleet`)   | Automatic — `ephemeral-env.sh` maps your host profiles → `rrp-rc`/`rrp-mc` inside the container                                                  |
+| `make ephemeral-zoa-e2e ID=...` (from `rosa-seaplane`)   | Automatic — `ephemeral-env.sh` maps your host profiles → `rrp-rc`/`rrp-mc` inside the container                                                  |
 | `make test-e2e` (from this repo directly)                  | Manual — set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` and `ZOA_MC_AWS_PROFILE=rrp-management-dev`                                                   |
 | CI (`nightly-ephemeral`, `on-demand-e2e`)                  | Automatic — Prow mounts a Vault secret with `rrp-rc`/`rrp-mc` profiles pre-configured                                                            |
-| Smoke via `rosa-hyperfleet`/`rosa-hyperfleet-api` CI jobs  | Automatic — same Prow secret; `rosa-hyperfleet/ci/e2e-tests.sh` sets profiles, then calls `make test-e2e-smoke`                                   |
+| Smoke via `rosa-seaplane`/`rosa-seaplane-api` CI jobs  | Automatic — same Prow secret; `rosa-seaplane/ci/e2e-tests.sh` sets profiles, then calls `make test-e2e-smoke`                                   |
 
 ## CI: How It Runs
 
 ### ZOA's Own Jobs (`openshift/release`)
 
 Config:
-[`ci-operator/config/openshift-online/rosa-hyperfleet-zoa/`](https://github.com/openshift/release/blob/master/ci-operator/config/openshift-online/rosa-hyperfleet-zoa/openshift-online-rosa-hyperfleet-zoa-main.yaml)
+[`ci-operator/config/openshift-online/rosa-seaplane-zoa/`](https://github.com/openshift/release/blob/master/ci-operator/config/openshift-online/rosa-seaplane-zoa/openshift-online-rosa-seaplane-zoa-main.yaml)
 in `openshift/release`.
 
 **`on-demand-e2e`** (presubmit, `/test on-demand-e2e` on a ZOA PR, `always_run: false`):
 
 ci-operator builds both images (`Containerfile` → `zoa-lambda`, `Containerfile.runner` → `zoa-runner`),
-the `rosa-hyperfleet-image-push` step mirrors them to `quay.io/rrp-dev-ci/zoa-{lambda,runner}` with
+the `rosa-seaplane-image-push` step mirrors them to `quay.io/rrp-dev-ci/zoa-{lambda,runner}` with
 a `ci-<PR>-<BUILD_ID>` tag, and the provision step overrides `zoa_lambda_image_tag`,
 `zoa_runner_image_tag`, `zoa_lambda_source_image`, and `zoa_runner_source_image` in
 `config/defaults.yaml` before deploying. The e2e step auto-detects the PR's ZOA repo/branch so
 the deep suite runs against the PR's own code and images.
 
 **`nightly-ephemeral`** (periodic): provisions with whatever image tags are pinned in
-`rosa-hyperfleet@main`'s config (Konflux-built). Catches infrastructure/platform regressions.
+`rosa-seaplane@main`'s config (Konflux-built). Catches infrastructure/platform regressions.
 
-### Consumer Repo Jobs (`rosa-hyperfleet` / `rosa-hyperfleet-api`)
+### Consumer Repo Jobs (`rosa-seaplane` / `rosa-seaplane-api`)
 
 Their `nightly-ephemeral`, `on-demand-e2e`, and `rosa-regionality-compatibility-e2e` jobs call
-`rosa-hyperfleet/ci/e2e-tests.sh`, which clones `rosa-hyperfleet-zoa@main` and runs:
+`rosa-seaplane/ci/e2e-tests.sh`, which clones `rosa-seaplane-zoa@main` and runs:
 
 - PRs (`JOB_TYPE=presubmit`): `make test-e2e-smoke` (~2min, 6 specs per target)
 - Nightlies (`JOB_TYPE=periodic`): `make test-e2e` (full deep suite)
 
-These jobs always test against whatever image tags are pinned in `rosa-hyperfleet` — they never
+These jobs always test against whatever image tags are pinned in `rosa-seaplane` — they never
 inject a custom ZOA image.
 
 ## Image Management
@@ -425,18 +425,18 @@ inject a custom ZOA image.
 | ci-operator | ZOA PR `on-demand-e2e` job | `quay.io/rrp-dev-ci/zoa-{lambda,runner}`                        | `ci-<PR>-<BUILD_ID>`                 | No expiry policy |
 
 Konflux builds are the **production** images (with attestation/SAST scans). The `config/defaults.yaml`
-pin in `rosa-hyperfleet` always points at a Konflux-built tag.
+pin in `rosa-seaplane` always points at a Konflux-built tag.
 
 ci-operator builds are used **only** for pre-merge CI testing.
 
-### How `rosa-hyperfleet` Consumes Image Tags
+### How `rosa-seaplane` Consumes Image Tags
 
-Four config keys in `rosa-hyperfleet`'s `config/defaults.yaml` control which ZOA images get
+Four config keys in `rosa-seaplane`'s `config/defaults.yaml` control which ZOA images get
 deployed: `zoa_lambda_image_tag`, `zoa_runner_image_tag`, `zoa_lambda_source_image`, and
 `zoa_runner_source_image`. These flow through `render.py` into Terraform inputs. Lambda images
 are mirrored to ECR at deploy time; runner images are pulled directly from Quay by Kubernetes.
 
-See [`rosa-hyperfleet/docs/adding-component-pre-merge.md`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/docs/adding-component-pre-merge.md#multi-image--terraform-deployed-components-zoa)
+See [`rosa-seaplane/docs/adding-component-pre-merge.md`](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/adding-component-pre-merge.md#multi-image--terraform-deployed-components-zoa)
 for the full image override mechanism.
 
 ## Troubleshooting
@@ -448,7 +448,7 @@ for the full image override mechanism.
 | `InvalidSignatureException` or `AccessDeniedException` on MC calls            | Using the RC profile to call the MC Lambda (different AWS account) | Set `ZOA_MC_AWS_PROFILE=rrp-management-dev` (or your MC profile); verify with `AWS_PROFILE=<profile> aws sts get-caller-identity` |
 | `InvalidSignatureException` or `AccessDeniedException` on RC calls            | Wrong profile for the RC account                                 | Set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` (or your RC profile); verify with `AWS_PROFILE=<profile> aws sts get-caller-identity`   |
 | `make ephemeral-zoa-e2e` fails to clone with a branch-not-found error         | `ZOA_REF` points at a branch that hasn't been pushed             | Push your branch first — this clones from the remote, not your local working tree                                           |
-| Monitoring suite fails                                                         | `RHOBS_API_URL` not set                                          | Export `RHOBS_API_URL`; get it from `make ephemeral-list` in `rosa-hyperfleet`. Use `test-e2e-zoa` to skip monitoring.       |
+| Monitoring suite fails                                                         | `RHOBS_API_URL` not set                                          | Export `RHOBS_API_URL`; get it from `make ephemeral-list` in `rosa-seaplane`. Use `test-e2e-zoa` to skip monitoring.       |
 | Monitoring specs fail with `403 Forbidden`                                     | SigV4 signing failed — wrong profile or expired session          | Verify with `awscurl --service execute-api --region us-east-1 "$RHOBS_API_URL/api/v1/query?query=up"` using the RC profile  |
 | Monitoring specs timeout on `Eventually` for metrics                           | CloudWatch pipeline lag > 5 min (transient)                      | Retry; if persistent, check YACE pod health: `oc get pod -n cloudwatch-exporter`                                            |
 | Monitoring log shows `panic: test timed out` with only dots (older Makefile)     | Former `go test -timeout 7m` killed the package mid-`Eventually` | Use ginkgo runner on `main`; logs show failing spec; tune `E2E_MONITORING_TIMEOUT` if needed                                |

@@ -1,10 +1,10 @@
-# rosa-hyperfleet-zoa
+# rosa-seaplane-zoa
 
 This file provides guidance to AI coding assistants when working with this repository.
 
 ## Project Overview
 
-**rosa-hyperfleet-zoa** is a serverless Zero Operator Access (ZOA) implementation for the ROSA HCP Hyperfleet platform. It contains the API server, Lambda execution engine, CLI, and all Trusted Action implementations. ZOA ensures operators have no persistent, interactive, or unaudited access to customer infrastructure — all operational actions execute through pre-defined, audited Trusted Actions.
+**rosa-seaplane-zoa** is a serverless Zero Operator Access (ZOA) implementation for the ROSA HCP Hyperfleet platform. It contains the API server, Lambda execution engine, CLI, and all Trusted Action implementations. ZOA ensures operators have no persistent, interactive, or unaudited access to customer infrastructure — all operational actions execute through pre-defined, audited Trusted Actions.
 
 **Tech stack**: Go 1.26, Cobra, AWS SDK v2, AWS Lambda, DynamoDB, S3, EventBridge, Kubernetes client-go
 
@@ -67,7 +67,7 @@ make images-push         # Build + push both images (dev workflow)
 - **Security invariant**: `get_secret` TA rejects access to HCP namespaces (`cluster-*`)
 - **Conventional commits**: Use `feat:`, `fix:`, `docs:`, `chore:`, `test:` prefixes
 - **Three-layer timeouts**: Lambda ceiling → code deadline (env var) → per-TA timeout (Go code)
-- **Architecture docs**: Live in `docs/` (self-contained), not in the hyperfleet repo
+- **Architecture docs**: Live in `docs/` (self-contained), not in the seaplane repo
 
 ## Development Guidelines
 
@@ -104,4 +104,4 @@ make images-push         # Build + push both images (dev workflow)
 
 | Repository | What it contains |
 |---|---|
-| [rosa-hyperfleet](https://github.com/openshift-online/rosa-hyperfleet) | Terraform infra (Lambda, DynamoDB, S3, KMS, IAM, EventBridge), ArgoCD configs |
+| [rosa-seaplane](https://github.com/openshift-online/rosa-seaplane) | Terraform infra (Lambda, DynamoDB, S3, KMS, IAM, EventBridge), ArgoCD configs |

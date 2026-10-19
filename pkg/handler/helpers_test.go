@@ -6,8 +6,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 // mockConfig wraps a real config.Config to inject test values without env vars.

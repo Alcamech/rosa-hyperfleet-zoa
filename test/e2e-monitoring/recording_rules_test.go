@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Recording rules defined in rosa-hyperfleet alerting-rules/templates/zoa.yaml.
+// Recording rules defined in rosa-seaplane alerting-rules/templates/zoa.yaml.
 var zoaRecordingRules = []string{
 	"zoa:ta_success_rate",
 	"zoa:ta_total_executions",

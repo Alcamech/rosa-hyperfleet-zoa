@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 func newActionsCommand(global *GlobalOptions) *cobra.Command {

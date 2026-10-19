@@ -18,15 +18,15 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/eksauth"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/api"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/handler"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/lambdahttp"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/scheduler"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/eksauth"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/api"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/handler"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/lambdahttp"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/scheduler"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 func main() {

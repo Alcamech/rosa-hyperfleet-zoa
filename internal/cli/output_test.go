@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 func TestShowOutput_WhenOutputAvailable_ItShouldReturnNilError(t *testing.T) {

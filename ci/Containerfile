@@ -1,4 +1,4 @@
-# CI build-root image for rosa-hyperfleet-zoa PR checks.
+# CI build-root image for rosa-seaplane-zoa PR checks.
 # Extends the standard Go builder for CI-specific tooling needs.
 # golangci-lint is managed via hack/tools/go.mod and built by Make targets.
 

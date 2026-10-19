@@ -10,11 +10,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/version"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/version"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 var jiraPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]+-\d+$`)

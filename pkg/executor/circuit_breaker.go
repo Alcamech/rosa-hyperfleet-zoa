@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
 )
 
 const (

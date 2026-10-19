@@ -7,7 +7,7 @@ ZOA container images build on Konflux (`rosa-tenant` / `kflux-prd-rh02`).
 | `zoa-lambda` | `Containerfile` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda` |
 | `zoa-runner` | `Containerfile.runner` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-runner` |
 
-Application: `rosa-hyperfleet-zoa` ([Konflux UI](https://konflux-ui.apps.kflux-prd-rh02.0fk9.p1.openshiftapps.com/ns/rosa-tenant/applications/rosa-hyperfleet-zoa/activity))
+Application: `rosa-seaplane-zoa` ([Konflux UI](https://konflux-ui.apps.kflux-prd-rh02.0fk9.p1.openshiftapps.com/ns/rosa-tenant/applications/rosa-seaplane-zoa/activity))
 
 The `zoa` CLI is built into the `zoa-runner` image and released via `.github/workflows/release-cli.yml` — no separate Konflux component.
 
@@ -22,6 +22,6 @@ Release-data components `zoa-lambda` and `zoa-runner` are registered in [konflux
 
 ## Merge order
 
-1. [konflux-release-data MR !21897](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/21897) — remove legacy `rosa-hyperfleet-zoa` component; finalize `zoa-lambda` / `zoa-runner`
+1. [konflux-release-data MR !21897](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/21897) — remove legacy `rosa-seaplane-zoa` component; finalize `zoa-lambda` / `zoa-runner`
 2. Merge this PR (`.tekton/zoa-lambda-*` + `.tekton/zoa-runner-*`)
 3. `openshift/release` — update branch protection required Konflux check names

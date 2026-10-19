@@ -80,14 +80,14 @@ $2–3/month per cluster.
 ## Recording Rules, Alerts, and Dashboard
 
 Recording rules, alerting rules, and the Grafana dashboard are defined in the
-[`rosa-hyperfleet`](https://github.com/openshift-online/rosa-hyperfleet) repo:
+[`rosa-seaplane`](https://github.com/openshift-online/rosa-seaplane) repo:
 
 | What                | Source of truth |
 | ------------------- | --------------- |
-| Recording rules and alerts | [`argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml) |
-| Dashboard           | [`argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json) |
-| YACE scrape config (RC) | [`argocd/config/regional-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/argocd/config/regional-cluster/cloudwatch-exporter/values.yaml) |
-| YACE scrape config (MC) | [`argocd/config/management-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-hyperfleet/blob/main/argocd/config/management-cluster/cloudwatch-exporter/values.yaml) |
+| Recording rules and alerts | [`argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/alerting-rules/templates/zoa.yaml) |
+| Dashboard           | [`argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/grafana/dashboards/zoa/zoa.json) |
+| YACE scrape config (RC) | [`argocd/config/regional-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/regional-cluster/cloudwatch-exporter/values.yaml) |
+| YACE scrape config (MC) | [`argocd/config/management-cluster/cloudwatch-exporter/values.yaml`](https://github.com/openshift-online/rosa-seaplane/blob/main/argocd/config/management-cluster/cloudwatch-exporter/values.yaml) |
 
 Refer to those files for the definitive list of rule names, alert thresholds,
 `for` durations, and PromQL expressions. Below is the design philosophy — the

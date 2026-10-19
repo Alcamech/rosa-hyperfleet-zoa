@@ -43,7 +43,7 @@ func TestGetDBResourceValidate_WhenAWSConfigMissing_ItShouldError(t *testing.T) 
 
 func TestGetDBResourceValidate_WhenEnvVarMissing_ItShouldError(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	os.Unsetenv("HYPERFLEET_DB_USERNAME")
 
 	err := (&getDBResource{}).Validate(context.Background(), newDBParams("apps/v1/Deployment"))
@@ -54,7 +54,7 @@ func TestGetDBResourceValidate_WhenEnvVarMissing_ItShouldError(t *testing.T) {
 
 func TestGetDBResourceValidate_WhenGVKMissing_ItShouldError(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
 
 	params := &ExecutionParams{AWSConfig: &aws.Config{Region: "us-east-1"}, Params: map[string]string{}}
@@ -65,7 +65,7 @@ func TestGetDBResourceValidate_WhenGVKMissing_ItShouldError(t *testing.T) {
 
 func TestGetDBResourceValidate_WhenGVKMalformed_ItShouldError(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
 
 	for _, bad := range []string{"Deployment", "apps/Deployment", "apps//Deployment", "apps/v1/"} {
@@ -77,7 +77,7 @@ func TestGetDBResourceValidate_WhenGVKMalformed_ItShouldError(t *testing.T) {
 
 func TestGetDBResourceValidate_WhenValid_ItShouldPass(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
 
 	for _, good := range []string{"apps/v1/Deployment", "hypershift.openshift.io/v1beta1/HostedCluster", "/v1/ConfigMap"} {
@@ -185,7 +185,7 @@ func TestDBResourceRow_JSONFieldOrder_ItShouldControlColumnOrder(t *testing.T) {
 func TestFullObject_ItShouldNestDecodedJSONBAndCarryIdentity(t *testing.T) {
 	ts := "2026-09-29 00:00:00+00"
 	r := dbResource{
-		gvk:               "hyperfleet.io/v1alpha1/Cluster",
+		gvk:               "seaplane.io/v1alpha1/Cluster",
 		namespace:         "cluster-abc",
 		name:              "web",
 		uid:               "uid-123",
@@ -200,7 +200,7 @@ func TestFullObject_ItShouldNestDecodedJSONBAndCarryIdentity(t *testing.T) {
 
 	obj := r.fullObject()
 
-	if obj["gvk"] != "hyperfleet.io/v1alpha1/Cluster" || obj["namespace"] != "cluster-abc" ||
+	if obj["gvk"] != "seaplane.io/v1alpha1/Cluster" || obj["namespace"] != "cluster-abc" ||
 		obj["name"] != "web" || obj["uid"] != "uid-123" || obj["objectVersion"] != int64(42) {
 		t.Errorf("unexpected identity fields: %+v", obj)
 	}

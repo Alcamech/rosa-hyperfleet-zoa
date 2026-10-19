@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Alerting rules defined in rosa-hyperfleet alerting-rules/templates/zoa.yaml.
+// Alerting rules defined in rosa-seaplane alerting-rules/templates/zoa.yaml.
 // All alerts are tested here, including GC alerts (ZOAGCStalled, ZOAGCErrors).
 // Unlike raw/recording-rule metric tests, alert definition tests only check
 // that the rule is loaded in Thanos Ruler — they don't need the underlying

@@ -14,10 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 // LambdaInvoker abstracts Lambda invocation for testability.

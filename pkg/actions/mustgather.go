@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/labels"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -67,7 +67,7 @@ var hcpSupplementPlatformNamespaces = []string{
 }
 
 // mcPlatformNamespaces are management-cluster platform namespaces included in direct dump.
-// Derived from rosa-hyperfleet argocd/config/{management-cluster,shared}/* ApplicationSet destinations.
+// Derived from rosa-seaplane argocd/config/{management-cluster,shared}/* ApplicationSet destinations.
 var mcPlatformNamespaces = []string{
 	"kube-system",
 	"argocd",
@@ -84,7 +84,7 @@ var mcPlatformNamespaces = []string{
 }
 
 // rcPlatformNamespaces are regional-cluster platform namespaces included in direct dump.
-// Derived from rosa-hyperfleet argocd/config/{regional-cluster,shared}/* ApplicationSet destinations.
+// Derived from rosa-seaplane argocd/config/{regional-cluster,shared}/* ApplicationSet destinations.
 var rcPlatformNamespaces = []string{
 	"kube-system",
 	"argocd",
@@ -95,7 +95,7 @@ var rcPlatformNamespaces = []string{
 	"cloudwatch-exporter",
 	"external-secrets-config",
 	"grafana",
-	"hyperfleet",
+	"seaplane",
 	"loki",
 	"monitoring",
 	"platform-api",
@@ -129,7 +129,7 @@ func (m *mustGather) Metadata() ActionMetadata {
 		TimeoutSeconds:                mustGatherTimeout,
 		DeploymentTargets:             []string{DeploymentTargetRC, DeploymentTargetMC},
 		Parameters: []ParameterDef{
-			{Name: "gather", Required: true, Description: "Scope: hcp (hosted cluster + control plane), mc (management platform namespaces), rc (regional platform + HyperFleet CRs). Comma-separated; must match this ZOA endpoint."},
+			{Name: "gather", Required: true, Description: "Scope: hcp (hosted cluster + control plane), mc (management platform namespaces), rc (regional platform + Seaplane CRs). Comma-separated; must match this ZOA endpoint."},
 			{Name: "cluster_id", Description: "Hosted cluster UUID. Required when gather includes hcp; ignored for mc/rc-only gathers."},
 			{Name: "extra_namespaces", Description: "Optional comma-separated namespaces added to the dump for the selected scope(s)."},
 			{Name: "skip_must_gather_image", Default: "false", Description: "When gather includes hcp: skip hypershift dump pod and collect Kubernetes log supplement only."},
@@ -918,11 +918,11 @@ func (m *mustGather) collectNamespacedDynamicResources(ctx context.Context, para
 }
 
 func (m *mustGather) collectRegionalCRs(ctx context.Context, params *ExecutionParams, gatherDir string) {
-	m.collectNamespacedDynamicResources(ctx, params, "hyperfleet", "hyperfleet.io", []schema.GroupVersionResource{
-		{Group: "hyperfleet.io", Version: "v1alpha1", Resource: "clusters"},
-		{Group: "hyperfleet.io", Version: "v1alpha1", Resource: "nodepools"},
-		{Group: "hyperfleet.io", Version: "v1alpha1", Resource: "placements"},
-		{Group: "hyperfleet.io", Version: "v1alpha1", Resource: "managementclusters"},
+	m.collectNamespacedDynamicResources(ctx, params, "seaplane", "seaplane.io", []schema.GroupVersionResource{
+		{Group: "seaplane.io", Version: "v1alpha1", Resource: "clusters"},
+		{Group: "seaplane.io", Version: "v1alpha1", Resource: "nodepools"},
+		{Group: "seaplane.io", Version: "v1alpha1", Resource: "placements"},
+		{Group: "seaplane.io", Version: "v1alpha1", Resource: "managementclusters"},
 	}, gatherDir)
 }
 

@@ -2,7 +2,7 @@
 
 // Package e2e_monitoring provides a minimal SigV4-signed HTTP client and
 // Thanos query helpers for the ZOA monitoring E2E tests.  This is a
-// self-contained copy of the patterns used in rosa-hyperfleet-api's
+// self-contained copy of the patterns used in rosa-seaplane-api's
 // test/helpers/{aws,thanos} — trimmed to only the functions we need so
 // the ZOA repo has no cross-module dependency on the API repo.
 package e2e_monitoring

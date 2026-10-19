@@ -10,8 +10,8 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/openshift-online/rosa-hyperfleet-zoa.git
-cd rosa-hyperfleet-zoa
+git clone https://github.com/openshift-online/rosa-seaplane-zoa.git
+cd rosa-seaplane-zoa
 make all                    # fmt → vet → lint → test → build
 ```
 
@@ -70,7 +70,7 @@ built `zoa` CLI against a real, already-provisioned RC and/or MC ZOA Lambda API 
 every registered Trusted Action.
 
 ```bash
-# Set URLs (from `make ephemeral-list ID=...` in rosa-hyperfleet)
+# Set URLs (from `make ephemeral-list ID=...` in rosa-seaplane)
 export ZOA_RC_API_URL="https://<id>.lambda-url.<region>.on.aws/"
 export ZOA_MC_API_URL="https://<id>.lambda-url.<region>.on.aws/"
 
@@ -93,13 +93,13 @@ ephemeral before running e2e — see the
 `e2e-testing.md` for the full step-by-step (`make images-push` → configure tag → resync → test).
 
 See **[`docs/e2e-testing.md`](e2e-testing.md)** for the full guide: running against a dev-account
-ephemeral environment (from this repo or from `rosa-hyperfleet`), CI image injection, AWS
+ephemeral environment (from this repo or from `rosa-seaplane`), CI image injection, AWS
 credentials.
 
 ## CI
 
 CI runs via [OpenShift CI (Prow)](https://prow.ci.openshift.org/).
-Config: [`openshift/release` — `ci-operator/config/openshift-online/rosa-hyperfleet-zoa/`](https://github.com/openshift/release/blob/master/ci-operator/config/openshift-online/rosa-hyperfleet-zoa/openshift-online-rosa-hyperfleet-zoa-main.yaml).
+Config: [`openshift/release` — `ci-operator/config/openshift-online/rosa-seaplane-zoa/`](https://github.com/openshift/release/blob/master/ci-operator/config/openshift-online/rosa-seaplane-zoa/openshift-online-rosa-seaplane-zoa-main.yaml).
 
 | Job | What it checks |
 |-----|----------------|

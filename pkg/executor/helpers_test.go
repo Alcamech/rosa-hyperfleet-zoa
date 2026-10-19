@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
 )
 
 // --- isTransientError tests ---

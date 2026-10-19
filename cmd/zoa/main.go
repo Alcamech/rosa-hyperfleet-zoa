@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/cli"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli"
 )
 
 func main() {

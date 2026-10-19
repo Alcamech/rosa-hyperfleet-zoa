@@ -22,9 +22,9 @@ Download a pinned GitHub Release binary and verify the checksum.
 Linux x86_64:
 
 ```bash
-VERSION=v0.3.0  # see https://github.com/openshift-online/rosa-hyperfleet-zoa/releases
-curl -fsSL -O "https://github.com/openshift-online/rosa-hyperfleet-zoa/releases/download/${VERSION}/zoa-linux-amd64"
-curl -fsSL -O "https://github.com/openshift-online/rosa-hyperfleet-zoa/releases/download/${VERSION}/SHA256SUMS"
+VERSION=v0.3.0  # see https://github.com/openshift-online/rosa-seaplane-zoa/releases
+curl -fsSL -O "https://github.com/openshift-online/rosa-seaplane-zoa/releases/download/${VERSION}/zoa-linux-amd64"
+curl -fsSL -O "https://github.com/openshift-online/rosa-seaplane-zoa/releases/download/${VERSION}/SHA256SUMS"
 sha256sum -c SHA256SUMS --ignore-missing
 chmod +x zoa-linux-amd64
 sudo mv zoa-linux-amd64 /usr/local/bin/zoa
@@ -130,9 +130,9 @@ zoa audit --since 7d --target my-cluster
 zoa audit --since 2026-08-01 --until 2026-08-15
 ```
 
-## HyperFleet DB actions
+## Seaplane DB actions
 
-`get_db_resource` and `list_db_gvks` read HyperFleet control-plane resources directly from the hyperfleet-db (Aurora PostgreSQL), bypassing the Kubernetes API. They run on the RC ZOA and authenticate to the database with an RDS IAM token. The table holds the HyperFleet API custom resources (`hyperfleet.io/v1alpha1`): `Cluster`, `NodePool`, `Placement`, `DNSReservation`, `Index`, `OidcConfig` (all namespaced, one namespace per hosted cluster: `cluster-<uuid>`), and `ManagementCluster` (cluster-scoped).
+`get_db_resource` and `list_db_gvks` read Seaplane control-plane resources directly from the seaplane-db (Aurora PostgreSQL), bypassing the Kubernetes API. They run on the RC ZOA and authenticate to the database with an RDS IAM token. The table holds the Seaplane API custom resources (`seaplane.io/v1alpha1`): `Cluster`, `NodePool`, `Placement`, `DNSReservation`, `Index`, `OidcConfig` (all namespaced, one namespace per hosted cluster: `cluster-<uuid>`), and `ManagementCluster` (cluster-scoped).
 
 Resources are keyed by GVK (`Group/Version/Kind`). The core group has an empty group, so if a core resource is ever present its GVK starts with a leading slash (e.g. `/v1/ConfigMap`).
 
@@ -143,22 +143,22 @@ By default the output is a kubectl-style summary table (NAMESPACE, NAME, VERSION
 zoa run list_db_gvks --jira ROSAENG-1234
 
 # List all objects of a type across every namespace
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/Cluster -A
 
 # List a type within a single hosted-cluster namespace
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/NodePool -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/NodePool -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1
 
 # Get a namespaced resource by name (returns the single resource)
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1 --name jaime1
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/Cluster -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1 --name jaime1
 
 # Get the cluster-scoped ManagementCluster by name (no namespace)
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/ManagementCluster --name mc-01
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/ManagementCluster --name mc-01
 
 # Full objects (spec/status/metadata) instead of the summary table
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A -v
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/Cluster -A -v
 
 # Pipe the full objects into jq
-zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A -o json | jq '.[].spec'
+zoa run get_db_resource --jira ROSAENG-1234 --param gvk=seaplane.io/v1alpha1/Cluster -A -o json | jq '.[].spec'
 ```
 
 **Notes:**
@@ -208,7 +208,7 @@ zoa run get_db_resource --jira ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/C
 |------------|----------|
 | `hcp` | One hosted ROSA cluster: hypershift dump + HCP/control-plane namespace diagnostics (MC ZOA only; requires `--cluster-id`) |
 | `mc` | Management cluster platform: platform namespaces (e.g. kube-applier, hypershift), nodes, storage, Karpenter CRs |
-| `rc` | Regional cluster platform: platform namespaces (e.g. platform-api), HyperFleet CRs, nodes, storage, Karpenter CRs |
+| `rc` | Regional cluster platform: platform namespaces (e.g. platform-api), Seaplane CRs, nodes, storage, Karpenter CRs |
 
 Read-only. Produces `output.tar.gz` (`zoa download`). Mode is async (see MODE column); use `--wait` to block.
 

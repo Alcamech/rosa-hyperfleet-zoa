@@ -13,14 +13,14 @@ import (
 
 // tombstoneFilter excludes fully-deleted rows (deletion_timestamp set with no
 // finalizers) while keeping live and dying objects. It matches the
-// hyperfleet-operator's own List query (hyperfleet-db/internal/reader/list.go).
+// seaplane-operator's own List query (seaplane-db/internal/reader/list.go).
 const tombstoneFilter = `(deletion_timestamp IS NULL OR metadata->'finalizers' != '[]'::jsonb)`
 
 func init() {
 	Register(&getDBResource{})
 }
 
-// validateDBConnParams checks the prerequisites shared by all hyperfleet-db
+// validateDBConnParams checks the prerequisites shared by all seaplane-db
 // actions: an AWS config (for the IAM auth token) and the DB connection env vars.
 func validateDBConnParams(params *ExecutionParams) error {
 	if params.AWSConfig == nil {
@@ -42,13 +42,13 @@ func (a *getDBResource) Metadata() ActionMetadata {
 		Scope:         "aws-api",
 		Type:          "read",
 		ExecutionMode: "sync",
-		Description:   "Get or list HyperFleet control-plane resources directly from the hyperfleet-db (Aurora PostgreSQL) by GVK, namespace, and name.",
+		Description:   "Get or list Seaplane control-plane resources directly from the seaplane-db (Aurora PostgreSQL) by GVK, namespace, and name.",
 		Authorization: AuthorizationConfig{Approval: "none"},
-		// RC only: hyperfleet-db lives in the regional cluster VPC.
+		// RC only: seaplane-db lives in the regional cluster VPC.
 		DeploymentTargets: []string{DeploymentTargetRC},
 		TimeoutSeconds:    30,
 		Parameters: []ParameterDef{
-			{Name: "gvk", Required: true, Description: "Group/Version/Kind, e.g. hyperfleet.io/v1alpha1/Cluster (core group: /v1/ConfigMap). Run list_db_gvks to discover valid values."},
+			{Name: "gvk", Required: true, Description: "Group/Version/Kind, e.g. seaplane.io/v1alpha1/Cluster (core group: /v1/ConfigMap). Run list_db_gvks to discover valid values."},
 			{Name: "namespace", Description: "Target namespace (omit with all_namespaces, or for cluster-scoped resources)"},
 			{Name: "all_namespaces", Default: "false", Description: "List across all namespaces (ignores namespace)"},
 			{Name: "name", Description: "Get a specific resource by name"},
@@ -89,7 +89,7 @@ func (a *getDBResource) Execute(ctx context.Context, params *ExecutionParams) (*
 
 	query, args := buildListQuery(gvk, namespace, name, allNamespaces)
 
-	params.Logger.Info("querying hyperfleet-db",
+	params.Logger.Info("querying seaplane-db",
 		"gvk", gvk,
 		"namespace", namespace,
 		"name", name,
@@ -170,7 +170,7 @@ func (a *getDBResource) Execute(ctx context.Context, params *ExecutionParams) (*
 	}, nil
 }
 
-// connectHyperfleetDB opens a pgx connection to hyperfleet-db using an RDS IAM
+// connectHyperfleetDB opens a pgx connection to seaplane-db using an RDS IAM
 // auth token as the password. The token is a presigned URL containing reserved
 // characters, so it is set on the config's Password field verbatim rather than
 // interpolated into the DSN (which would corrupt it).
@@ -204,7 +204,7 @@ func connectHyperfleetDB(ctx context.Context, params *ExecutionParams) (*pgx.Con
 
 // buildListQuery constructs the SELECT against kubernetes_resources for the
 // given filters. The tombstone filter (deletion_timestamp set with no
-// finalizers) matches the hyperfleet-operator's own List query so fully-deleted
+// finalizers) matches the seaplane-operator's own List query so fully-deleted
 // objects are excluded while dying objects (still holding finalizers) are shown.
 func buildListQuery(gvk, namespace, name string, allNamespaces bool) (string, []any) {
 	var qb strings.Builder
@@ -235,7 +235,7 @@ func buildListQuery(gvk, namespace, name string, allNamespaces bool) (string, []
 func validateGVK(gvk string) error {
 	parts := strings.Split(gvk, "/")
 	if len(parts) != 3 || parts[1] == "" || parts[2] == "" {
-		return fmt.Errorf("invalid gvk %q: expected Group/Version/Kind (e.g. hyperfleet.io/v1alpha1/Cluster or /v1/ConfigMap)", gvk)
+		return fmt.Errorf("invalid gvk %q: expected Group/Version/Kind (e.g. seaplane.io/v1alpha1/Cluster or /v1/ConfigMap)", gvk)
 	}
 	return nil
 }

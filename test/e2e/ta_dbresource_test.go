@@ -1,8 +1,8 @@
 //go:build e2e
 
-// TA: get_db_resource, list_db_gvks (aws-api scope) — hyperfleet-db readers.
+// TA: get_db_resource, list_db_gvks (aws-api scope) — seaplane-db readers.
 //
-// RC-only: the hyperfleet-db lives in the regional cluster VPC, so these TAs
+// RC-only: the seaplane-db lives in the regional cluster VPC, so these TAs
 // are registered on the RC Lambda and are skipped for MC targets.
 //
 // What this suite guarantees vs. what it does not:
@@ -29,13 +29,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// aValidGVK is any well-formed HyperFleet GVK. Used for data-independent specs
+// aValidGVK is any well-formed Seaplane GVK. Used for data-independent specs
 // (success/shape, not-found) where the row need not actually exist: a listing
 // query for an absent GVK still succeeds with zero rows, and a --name lookup
 // still resolves to "not found".
-const aValidGVK = "hyperfleet.io/v1alpha1/Cluster"
+const aValidGVK = "seaplane.io/v1alpha1/Cluster"
 
-// firstDBGVK returns a GVK present in the hyperfleet-db (via list_db_gvks) and
+// firstDBGVK returns a GVK present in the seaplane-db (via list_db_gvks) and
 // whether any exist, so the opportunistic specs can Skip on an empty DB instead
 // of asserting against control-plane state this suite does not create.
 func firstDBGVK(tgt target) (string, bool) {
@@ -56,7 +56,7 @@ var _ = Describe("list_db_gvks", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 		if tgt.DeploymentTarget != "rc" {
-			continue // RC-only: hyperfleet-db is not reachable from MC ZOA
+			continue // RC-only: seaplane-db is not reachable from MC ZOA
 		}
 
 		Describe(tgt.Name, func() {
@@ -67,7 +67,7 @@ var _ = Describe("list_db_gvks", func() {
 			// Backbone: proves the RC Lambda can auth to Aurora (RDS IAM), reach
 			// it across the VPC, and query the live schema. Succeeding with zero
 			// rows is a valid, meaningful pass.
-			It("reaches the hyperfleet-db and returns the GVK catalog", func() {
+			It("reaches the seaplane-db and returns the GVK catalog", func() {
 				exec := runAction(tgt, "list_db_gvks")
 				for _, item := range outputArray(exec) {
 					row, ok := item.(map[string]interface{})
@@ -86,7 +86,7 @@ var _ = Describe("get_db_resource", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 		if tgt.DeploymentTarget != "rc" {
-			continue // RC-only: hyperfleet-db is not reachable from MC ZOA
+			continue // RC-only: seaplane-db is not reachable from MC ZOA
 		}
 
 		Describe(tgt.Name, func() {
@@ -96,7 +96,7 @@ var _ = Describe("get_db_resource", func() {
 
 			// --- Backbone: data-independent, always run ---
 
-			It("reaches the hyperfleet-db for a well-formed GVK", func() {
+			It("reaches the seaplane-db for a well-formed GVK", func() {
 				// A listing query for a GVK with no rows still succeeds and
 				// returns an empty array, which is what proves the query path.
 				exec := runAction(tgt, "get_db_resource", "--param", "gvk="+aValidGVK, "-A")
@@ -128,7 +128,7 @@ var _ = Describe("get_db_resource", func() {
 			It("lists real rows and fetches one by name [needs data]", func() {
 				gvk, ok := firstDBGVK(tgt)
 				if !ok {
-					Skip("hyperfleet-db is empty in this environment (no hosted clusters); " +
+					Skip("seaplane-db is empty in this environment (no hosted clusters); " +
 						"row-level assertions are covered by unit tests in pkg/actions")
 				}
 
@@ -157,7 +157,7 @@ var _ = Describe("get_db_resource", func() {
 			It("returns full objects with --verbose [needs data]", func() {
 				gvk, ok := firstDBGVK(tgt)
 				if !ok {
-					Skip("hyperfleet-db is empty in this environment (no hosted clusters); " +
+					Skip("seaplane-db is empty in this environment (no hosted clusters); " +
 						"verbose projection is covered by TestFullObject in pkg/actions")
 				}
 
