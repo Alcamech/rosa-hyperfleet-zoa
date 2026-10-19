@@ -965,7 +965,7 @@ func TestParseGatherTargets(t *testing.T) {
 }
 
 func TestResolveClusterIdentity(t *testing.T) {
-	t.Run("When cluster_id provided it should derive HyperFleet namespace from HostedCluster lookup", func(t *testing.T) {
+	t.Run("When cluster_id provided it should derive Seaplane namespace from HostedCluster lookup", func(t *testing.T) {
 		params := &ExecutionParams{
 			Params:        map[string]string{"cluster_id": "1600392f-9a94-4957-b672-eff8dc2be0bb"},
 			DynamicClient: mustGatherHostedClusterClient("sergio", "cluster-1600392f-9a94-4957-b672-eff8dc2be0bb"),
@@ -1029,7 +1029,7 @@ func TestResolveCollectionNamespaces(t *testing.T) {
 		if len(ns) != len(rcPlatformNamespaces) {
 			t.Fatalf("expected %d RC namespaces, got %d: %v", len(rcPlatformNamespaces), len(ns), ns)
 		}
-		for _, want := range []string{"karpenter", "eks-nodepool", "platform-api", "hyperfleet", "grafana", "thanos-operator", "aws-load-balancer-controller"} {
+		for _, want := range []string{"karpenter", "eks-nodepool", "platform-api", "seaplane", "grafana", "thanos-operator", "aws-load-balancer-controller"} {
 			found := false
 			for _, n := range ns {
 				if n == want {

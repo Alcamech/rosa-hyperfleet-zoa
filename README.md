@@ -187,7 +187,7 @@ export ZOA_API_URL="https://<id>.lambda-url.<region>.on.aws"
 ## Repository Structure
 
 ```
-rosa-hyperfleet-zoa/
+rosa-seaplane-zoa/
 ├── cmd/
 │   ├── zoa/              CLI binary
 │   ├── zoa-lambda/       Lambda function (api + worker modes)
@@ -249,8 +249,8 @@ Two conformance gates ensure every Trusted Action stays tested:
 
 ## Infrastructure
 
-ZOA infrastructure (Terraform) lives in [rosa-hyperfleet](https://github.com/openshift-online/rosa-hyperfleet):
+ZOA infrastructure (Terraform) lives in [rosa-seaplane](https://github.com/openshift-online/rosa-seaplane):
 
 - `terraform/modules/zoa/` — DynamoDB tables, S3 bucket, KMS key, ECR
 - `terraform/modules/zoa-lambda/` — Per-VPC Lambda functions, IAM, EventBridge, EKS access
-- [ZOA Architecture ADR](https://github.com/openshift-online/rosa-hyperfleet/blob/main/docs/design/zoa-architecture.md) — infrastructure architecture, Terraform context, and platform integration
+- [ZOA Architecture ADR](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md) — infrastructure architecture, Terraform context, and platform integration

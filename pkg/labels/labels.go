@@ -15,7 +15,7 @@ const (
 
 	ComponentMustGather = "must-gather"
 
-	// ClusterNamespacePrefix is the HyperFleet v2 HostedCluster namespace prefix (cluster-<uuid>).
+	// ClusterNamespacePrefix is the Seaplane v2 HostedCluster namespace prefix (cluster-<uuid>).
 	ClusterNamespacePrefix = "cluster-"
 
 	DefaultJobsNamespace = "zoa-jobs"

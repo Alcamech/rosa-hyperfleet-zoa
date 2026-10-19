@@ -1,4 +1,4 @@
-module github.com/openshift-online/rosa-hyperfleet-zoa/hack/tools
+module github.com/openshift-online/rosa-seaplane-zoa/hack/tools
 
 go 1.26.0
 

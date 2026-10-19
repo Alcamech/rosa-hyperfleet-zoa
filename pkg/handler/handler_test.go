@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 func TestFlattenHeaders_WhenMultipleHeaders_ItShouldJoinValues(t *testing.T) {

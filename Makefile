@@ -33,7 +33,7 @@ $(GINKGO): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/ginkgo github.com/onsi/ginkgo/v2/ginkgo
 
 VERSION     = 0.4.0
-VERSION_PKG = github.com/openshift-online/rosa-hyperfleet-zoa/internal/version
+VERSION_PKG = github.com/openshift-online/rosa-seaplane-zoa/internal/version
 VERSION_LDFLAGS = -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS         = -ldflags "$(VERSION_LDFLAGS)"
 DIST_LDFLAGS    = -ldflags "-s -w $(VERSION_LDFLAGS)"
@@ -106,8 +106,8 @@ test:
 GINKGO_FLAGS ?=
 ZOA_BIN_ABS   = $(abspath $(BUILD_DIR))/$(BINARY_NAME)
 
-# Functional e2e via ginkgo -vv (same visibility as rosa-hyperfleet-api platform monitoring).
-# rosa-hyperfleet ci/e2e-tests.sh invokes make test-e2e / test-e2e-smoke unchanged.
+# Functional e2e via ginkgo -vv (same visibility as rosa-seaplane-api platform monitoring).
+# rosa-seaplane ci/e2e-tests.sh invokes make test-e2e / test-e2e-smoke unchanged.
 E2E_GINKGO_PKG = ./test/e2e
 E2E_GINKGO_RUN = ZOA_BIN=$(ZOA_BIN_ABS) $(GINKGO) --tags=e2e -vv $(GINKGO_FLAGS)
 
@@ -150,7 +150,7 @@ test-e2e: build $(GINKGO)
 
 # test-e2e-smoke runs only the specs labeled "smoke" — cheap, --dry-run/read-only
 # coverage (discovery + one read TA + one write TA dry-run) meant to be run
-# from rosa-hyperfleet/rosa-hyperfleet-api's own e2e jobs so infra/platform
+# from rosa-seaplane/rosa-seaplane-api's own e2e jobs so infra/platform
 # changes can't silently break ZOA without adding meaningful time to those
 # runs. Full validation (including real delete_pod/rollout_restart execution)
 # is `make test-e2e`, exercised only from this repo's own on-demand-e2e/nightly.
@@ -236,7 +236,7 @@ help:
 	@echo "Test & Quality:"
 	@echo "  test               Run unit tests with race detection"
 	@echo "  test-e2e           Run full ZOA e2e + monitoring suite (auto-parallel when both RC+MC are set)"
-	@echo "  test-e2e-smoke     Run smoke ZOA e2e + monitoring smoke (used by rosa-hyperfleet/-api)"
+	@echo "  test-e2e-smoke     Run smoke ZOA e2e + monitoring smoke (used by rosa-seaplane/-api)"
 	@echo "  test-e2e-zoa       Run full ZOA e2e only (no monitoring)"
 	@echo "  test-e2e-zoa-smoke Run smoke ZOA e2e only (no monitoring)"
 	@echo "  test-e2e-monitoring Run monitoring validation only (requires RHOBS_API_URL)"

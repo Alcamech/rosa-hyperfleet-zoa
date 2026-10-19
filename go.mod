@@ -1,4 +1,4 @@
-module github.com/openshift-online/rosa-hyperfleet-zoa
+module github.com/openshift-online/rosa-seaplane-zoa
 
 go 1.26.0
 

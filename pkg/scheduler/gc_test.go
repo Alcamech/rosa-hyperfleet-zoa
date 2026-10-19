@@ -11,9 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/labels"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 func TestGarbageCollect_WhenTerminalExecutionExists_ItShouldCleanAndMark(t *testing.T) {

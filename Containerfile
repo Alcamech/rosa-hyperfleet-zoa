@@ -16,7 +16,7 @@ RUN git config --global --add safe.directory /workspace && \
     ZOA_VERSION=$(grep '^VERSION ' Makefile | awk '{print $3}') && \
     GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
     BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
-    VERSION_PKG="github.com/openshift-online/rosa-hyperfleet-zoa/internal/version" && \
+    VERSION_PKG="github.com/openshift-online/rosa-seaplane-zoa/internal/version" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -buildvcs=false \
     -ldflags="-w -s -X ${VERSION_PKG}.Version=${ZOA_VERSION} -X ${VERSION_PKG}.GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}" \
@@ -37,7 +37,7 @@ LABEL name="zoa-lambda" \
       io.k8s.description="ZOA Lambda function for API and Worker execution" \
       com.redhat.component="zoa-lambda-container" \
       distribution-scope="public" \
-      url="https://github.com/openshift-online/rosa-hyperfleet-zoa"
+      url="https://github.com/openshift-online/rosa-seaplane-zoa"
 
 COPY --from=builder /workspace/zoa-lambda /usr/local/bin/zoa-lambda
 

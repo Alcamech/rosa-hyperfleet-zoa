@@ -13,12 +13,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/version"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/version"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 // S3Getter abstracts S3 read operations for testability.

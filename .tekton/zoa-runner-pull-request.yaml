@@ -2,7 +2,7 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/openshift-online/rosa-hyperfleet-zoa?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/openshift-online/rosa-seaplane-zoa?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
@@ -10,7 +10,7 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch == "main" && ( "Containerfile.runner".pathChanged() || "cmd/zoa-runner/***".pathChanged() || "cmd/zoa/***".pathChanged() || "pkg/***".pathChanged() || "internal/***".pathChanged() || "go.mod".pathChanged() || "go.sum".pathChanged() || ".tekton/zoa-runner-pull-request.yaml".pathChanged() )
   labels:
-    appstudio.openshift.io/application: rosa-hyperfleet-zoa
+    appstudio.openshift.io/application: rosa-seaplane-zoa
     appstudio.openshift.io/component: zoa-runner
     pipelines.appstudio.openshift.io/type: build
   name: zoa-runner-on-pull-request

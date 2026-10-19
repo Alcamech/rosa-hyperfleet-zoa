@@ -17,7 +17,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega" //nolint:staticcheck // dot-import is the Gomega/Ginkgo convention
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
 )
 
 // target is one ZOA Lambda deployment (RC or MC) under test. RC and MC are

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
 )
 
 func testLogger() *slog.Logger {

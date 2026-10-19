@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
 )
 
 // APIClient defines the operations the CLI needs from the ZOA API.

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/client"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/output"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 func TestFormatParams_WhenEmpty_ItShouldReturnDash(t *testing.T) {

@@ -21,10 +21,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/internal/version"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/labels"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/version"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/labels"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 const labelKey = labels.KeyExecutionID

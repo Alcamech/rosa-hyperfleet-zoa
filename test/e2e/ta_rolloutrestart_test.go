@@ -19,7 +19,7 @@ var _ = Describe("rollout_restart", func() {
 			})
 
 			// Smoke-level coverage stays --dry-run: consumer repos
-			// (rosa-hyperfleet, rosa-hyperfleet-api) run this on every
+			// (rosa-seaplane, rosa-seaplane-api) run this on every
 			// on-demand-e2e/nightly-ephemeral job via `make
 			// test-e2e-smoke`, so it must never mutate a live cluster.
 			It("dry-run: validates a real Deployment target without mutating it", Label("smoke"), func() {

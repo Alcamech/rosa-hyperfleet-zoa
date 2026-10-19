@@ -37,7 +37,7 @@ func TestListDBGVKsValidate_WhenAWSConfigMissing_ItShouldError(t *testing.T) {
 
 func TestListDBGVKsValidate_WhenEnvVarMissing_ItShouldError(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	os.Unsetenv("HYPERFLEET_DB_USERNAME")
 
 	params := &ExecutionParams{AWSConfig: &aws.Config{Region: "us-east-1"}}
@@ -48,7 +48,7 @@ func TestListDBGVKsValidate_WhenEnvVarMissing_ItShouldError(t *testing.T) {
 
 func TestListDBGVKsValidate_WhenReady_ItShouldPass(t *testing.T) {
 	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "hyperfleet")
+	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
 	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
 
 	params := &ExecutionParams{AWSConfig: &aws.Config{Region: "us-east-1"}}

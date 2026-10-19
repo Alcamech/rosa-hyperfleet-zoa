@@ -25,9 +25,9 @@ func (a *listDBGVKs) Metadata() ActionMetadata {
 		Scope:         "aws-api",
 		Type:          "read",
 		ExecutionMode: "sync",
-		Description:   "List the distinct resource types (GVKs) present in the hyperfleet-db, with object counts. Use to discover valid gvk values for get_db_resource.",
+		Description:   "List the distinct resource types (GVKs) present in the seaplane-db, with object counts. Use to discover valid gvk values for get_db_resource.",
 		Authorization: AuthorizationConfig{Approval: "none"},
-		// RC only: hyperfleet-db lives in the regional cluster VPC.
+		// RC only: seaplane-db lives in the regional cluster VPC.
 		DeploymentTargets: []string{DeploymentTargetRC},
 		TimeoutSeconds:    30,
 		Parameters:        []ParameterDef{},
@@ -45,7 +45,7 @@ func (a *listDBGVKs) Execute(ctx context.Context, params *ExecutionParams) (*Act
 	}
 	defer conn.Close(ctx)
 
-	params.Logger.Info("listing hyperfleet-db GVKs")
+	params.Logger.Info("listing seaplane-db GVKs")
 
 	rows, err := conn.Query(ctx, listGVKsQuery)
 	if err != nil {

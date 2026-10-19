@@ -13,13 +13,13 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/actions"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/api"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/config"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/executor"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/metrics"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/scheduler"
-	"github.com/openshift-online/rosa-hyperfleet-zoa/pkg/store"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/api"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/executor"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/scheduler"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
 // ExecutionEvent is the payload for self-invoked TA execution.
