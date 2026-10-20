@@ -4,8 +4,8 @@ ZOA container images build on Konflux (`rosa-tenant` / `kflux-prd-rh02`).
 
 | Component | Containerfile | Quay image |
 |-----------|---------------|------------|
-| `zoa-lambda` | `Containerfile` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda` |
-| `zoa-runner` | `Containerfile.runner` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-runner` |
+| `rosa-seaplane-zoa-lambda` | `Containerfile` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
+| `rosa-seaplane-zoa-runner` | `Containerfile.runner` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-runner` |
 
 Application: `rosa-seaplane-zoa` ([Konflux UI](https://konflux-ui.apps.kflux-prd-rh02.0fk9.p1.openshiftapps.com/ns/rosa-tenant/applications/rosa-seaplane-zoa/activity))
 
@@ -17,8 +17,8 @@ Release-data components `zoa-lambda` and `zoa-runner` are registered in [konflux
 
 | PipelineRun | Component | Trigger |
 |-------------|-----------|---------|
-| `zoa-lambda-on-pull-request` / `zoa-lambda-on-push` | `zoa-lambda` | `Containerfile`, `cmd/zoa-lambda/**`, shared Go paths |
-| `zoa-runner-on-pull-request` / `zoa-runner-on-push` | `zoa-runner` | `Containerfile.runner`, `cmd/zoa-runner/**`, `cmd/zoa/**`, shared Go paths |
+| `zoa-lambda-on-pull-request` / `zoa-lambda-on-push` | `rosa-seaplane-zoa-lambda` | `Containerfile`, `cmd/zoa-lambda/**`, shared Go paths |
+| `zoa-runner-on-pull-request` / `zoa-runner-on-push` | `rosa-seaplane-zoa-runner` | `Containerfile.runner`, `cmd/zoa-runner/**`, `cmd/zoa/**`, shared Go paths |
 
 ## Merge order
 

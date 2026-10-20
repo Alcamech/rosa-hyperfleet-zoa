@@ -11,7 +11,7 @@ metadata:
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch == "main" && ( "Containerfile".pathChanged() || "cmd/zoa-lambda/***".pathChanged() || "pkg/***".pathChanged() || "internal/***".pathChanged() || "go.mod".pathChanged() || "go.sum".pathChanged() || ".tekton/zoa-lambda-pull-request.yaml".pathChanged() )
   labels:
     appstudio.openshift.io/application: rosa-seaplane-zoa
-    appstudio.openshift.io/component: zoa-lambda
+    appstudio.openshift.io/component: rosa-seaplane-zoa-lambda
     pipelines.appstudio.openshift.io/type: build
   name: zoa-lambda-on-pull-request
   namespace: rosa-tenant
@@ -22,7 +22,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda:on-pr-{{revision}}
+    value: quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
   - name: build-platforms
@@ -558,7 +558,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-zoa-lambda
+    serviceAccountName: build-pipeline-rosa-seaplane-zoa-lambda
   workspaces:
   - name: git-auth
     secret:
