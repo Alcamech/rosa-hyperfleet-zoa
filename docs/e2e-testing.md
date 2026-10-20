@@ -83,8 +83,8 @@ your code changes.
 
 | Source | Image Tag Format | Registry |
 |--------|------------------|----------|
-| **PR builds** (Tekton) | `on-pr-<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda` |
-| **Main branch** (Tekton) | `<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda` |
+| **PR builds** (Tekton) | `on-pr-<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
+| **Main branch** (Tekton) | `<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
 | **Dev builds** (local) | `latest` or `<commit-sha>` | `quay.io/rrp-dev-ci/zoa-lambda` |
 | **Manual** | Any tag you choose | Your quay.io namespace |
 
@@ -112,7 +112,7 @@ gh pr create \
 gh pr comment <pr-number> --body "/ok-to-test"
 
 # 4. Wait for the build check to pass in the PR
-# Tekton will build: quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda:on-pr-<commit>
+# Tekton will build: quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda:on-pr-<commit>
 
 # 5. Get your commit SHA
 git rev-parse --short HEAD   # e.g. 1fa64b3
@@ -128,15 +128,15 @@ cat > .ephemeral-env/defaults.yaml <<EOF
 regional_cluster:
   zoa_lambda_image_tag: "on-pr-1fa64b3"
   zoa_runner_image_tag: "on-pr-1fa64b3"
-  zoa_lambda_source_image: "quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda"
-  zoa_runner_source_image: "quay.io/redhat-user-workloads/rosa-tenant/zoa-runner"
+  zoa_lambda_source_image: "quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda"
+  zoa_runner_source_image: "quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-runner"
 EOF
 
 # Alternative: Override only Lambda image (if runner build is still pending)
 # cat > .ephemeral-env/defaults.yaml <<EOF
 # regional_cluster:
 #   zoa_lambda_image_tag: "on-pr-1fa64b3"
-#   zoa_lambda_source_image: "quay.io/redhat-user-workloads/rosa-tenant/zoa-lambda"
+#   zoa_lambda_source_image: "quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda"
 # EOF
 
 # Create region file (required for .ephemeral-env/)
