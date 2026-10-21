@@ -80,7 +80,7 @@ On failure, logs are printed to stderr. Use --no-wait to fire and forget.`,
 	parambind.RegisterTAParamFlags(cmd, &opts.ta)
 	cmd.Flags().StringVar(&opts.reason, "reason", "",
 		fmt.Sprintf("Required; env %s (%s)", reason.EnvVar, reason.FormatHint))
-	// TODO(ROSAENG-60291): remove --jira after seaplane/zoa e2e use --reason only.
+	// TODO(ROSAENG-68805): remove --jira after seaplane/zoa e2e use --reason only.
 	cmd.Flags().StringVar(&opts.reason, "jira", "", "Deprecated alias for --reason")
 	cmd.Flags().BoolVar(&opts.force, "force", false, parambind.RunFlagHelp("force"))
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, parambind.RunFlagHelp("dry-run"))

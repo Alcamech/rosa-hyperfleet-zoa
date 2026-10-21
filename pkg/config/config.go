@@ -283,9 +283,9 @@ func targetTypeFromEnv() string {
 	return TargetTypeFromEnv()
 }
 
-// TargetTypeFromEnv reads ZOA_TARGET_TYPE (rc or mc).
+// TargetTypeFromEnv reads ZOA_TARGET_TYPE (rc or mc); see coalesceTargetTypeEnv (ROSAENG-68805).
 func TargetTypeFromEnv() string {
-	return normalizeTargetType(os.Getenv(targetTypeEnv))
+	return coalesceTargetTypeEnv()
 }
 
 func normalizeTargetType(s string) string {

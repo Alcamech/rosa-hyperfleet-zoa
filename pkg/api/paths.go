@@ -7,7 +7,7 @@ const V0Prefix = "/api/v0"
 const (
 	PathTrustedActions     = V0Prefix + "/trusted-actions"
 	PathTrustedActionsRuns = V0Prefix + "/trusted-actions/runs"
-	// PathLegacyAudit is the pre-v0.5 audit URL; main-branch zoa CLI still calls it (ROSAENG-60291).
+	// PathLegacyAudit is the pre-v0.5 audit URL; main-branch zoa CLI still calls it (ROSAENG-68805).
 	PathLegacyAudit = PathTrustedActions + "/audit"
 )
 

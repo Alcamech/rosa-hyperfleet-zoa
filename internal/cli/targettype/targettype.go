@@ -3,8 +3,9 @@ package targettype
 
 import (
 	"fmt"
-	"os"
 	"strings"
+
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
 )
 
 const (
@@ -20,7 +21,8 @@ func Resolve(flagValue string) (string, error) {
 	if v := normalize(flagValue); v != "" {
 		return v, nil
 	}
-	if v := normalize(os.Getenv(EnvVar)); v != "" {
+	// Legacy ZOA_DEPLOYMENT_TARGET fallback via config.TargetTypeFromEnv (ROSAENG-68805).
+	if v := config.TargetTypeFromEnv(); v != "" {
 		return v, nil
 	}
 	return "", fmt.Errorf(

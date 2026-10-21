@@ -136,7 +136,7 @@ type sessionStartRequest struct {
 	DeploymentName string `json:"deployment_name"`
 	Target         string `json:"target"`
 	Reason         string `json:"reason"`
-	Jira           string `json:"jira"` // deprecated alias; see coalesceReason (ROSAENG-60291)
+	Jira           string `json:"jira"` // deprecated alias; see coalesceReason (ROSAENG-68805)
 	TimeoutHours   int    `json:"timeout_hours,omitempty"`
 }
 
