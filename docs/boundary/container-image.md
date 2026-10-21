@@ -1,6 +1,6 @@
 # ZOA Boundary — Container image
 
-Image: **`zoa-boundary`** (`Containerfile.boundary`). Published to Quay (`quay.io/rrp-dev-ci/zoa-boundary`); tag pinned in rosa-seaplane `config/defaults.yaml` (`zoa_boundary_image_tag`).
+Image: **`zoa-boundary`** (`Containerfile.boundary`). Konflux component **`rosa-seaplane-zoa-boundary`** publishes to `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-boundary` (pipelines planned; see [Konflux](../konflux.md)). Local dev and ephemeral CI use `quay.io/rrp-dev-ci/zoa-boundary`. Tag pinned in rosa-seaplane `config/defaults.yaml` (`zoa_boundary_image_tag` + `zoa_boundary_source_image`).
 
 ## Design
 

@@ -435,7 +435,7 @@ inject a custom ZOA image.
 
 | System      | When                       | Registry                                                        | Tag format                           | Expiry           |
 | ----------- | -------------------------- | --------------------------------------------------------------- | ------------------------------------ | ---------------- |
-| Konflux     | Every push to `main`       | `quay.io/redhat-user-workloads/rosa-tenant/zoa-{lambda,runner}` | Full commit SHA (e.g. `8af92e65...`) | Never            |
+| Konflux     | Every push to `main`       | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-{lambda,runner,boundary}` | Full commit SHA (e.g. `8af92e65...`) | Never            |
 | ci-operator | ZOA PR `on-demand-e2e` job | `quay.io/rrp-dev-ci/zoa-{lambda,runner}`                        | `ci-<PR>-<BUILD_ID>`                 | No expiry policy |
 
 Konflux builds are the **production** images (with attestation/SAST scans). The `config/defaults.yaml`
@@ -445,10 +445,11 @@ ci-operator builds are used **only** for pre-merge CI testing.
 
 ### How `rosa-seaplane` Consumes Image Tags
 
-Four config keys in `rosa-seaplane`'s `config/defaults.yaml` control which ZOA images get
-deployed: `zoa_lambda_image_tag`, `zoa_runner_image_tag`, `zoa_lambda_source_image`, and
-`zoa_runner_source_image`. These flow through `render.py` into Terraform inputs. Lambda images
-are mirrored to ECR at deploy time; runner images are pulled directly from Quay by Kubernetes.
+Six config keys in `rosa-seaplane`'s `config/defaults.yaml` control which ZOA images get
+deployed: `zoa_lambda_image_tag`, `zoa_runner_image_tag`, `zoa_boundary_image_tag`,
+`zoa_lambda_source_image`, `zoa_runner_source_image`, and `zoa_boundary_source_image`. These
+flow through `render.py` into Terraform inputs. Lambda images are mirrored to ECR at deploy
+time; runner and boundary images are pulled directly from Quay (ECS / Kubernetes).
 
 See [`rosa-seaplane/docs/adding-component-pre-merge.md`](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/adding-component-pre-merge.md#multi-image--terraform-deployed-components-zoa)
 for the full image override mechanism.

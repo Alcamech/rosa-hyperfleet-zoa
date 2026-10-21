@@ -67,7 +67,7 @@ Cross-cutting concerns that span all three pillars.
 | [Development](development.md)     | Build, test, lint, images                         |
 | [E2E testing](e2e-testing.md)     | Functional + monitoring suites, Makefile targets  |
 | [Observability](observability.md) | EMF metrics; Lambda logs in Grafana               |
-| [Konflux](konflux.md)             | `zoa-lambda`, `zoa-runner`, `zoa-boundary` images |
+| [Konflux](konflux.md)             | `rosa-seaplane-zoa-lambda`, `rosa-seaplane-zoa-runner`, `rosa-seaplane-zoa-boundary` |
 
 ## Doc conventions
 
