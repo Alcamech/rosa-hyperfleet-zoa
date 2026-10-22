@@ -1,8 +1,10 @@
 # Timeout & Deadline Tuning Guide
 
-This document explains the timeout architecture, how values relate to each other, and how to safely adjust them.
+This document explains **Trusted Action** timeout architecture on API/Worker Lambdas: how values relate and how to adjust them safely.
 
-## Three Layers of Timeouts
+**Boundary sessions and Access** use different ceilings (30s Access Lambda, session deadline/idle on ECS). See [Access Lambda and boundary sessions](#access-lambda-and-boundary-sessions) below — operational detail lives in [session reaper](../boundary/session-reaper.md) and [operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership).
+
+## Three Layers of Timeouts (TA execution)
 
 ```
 ┌───────────────────────────────────────────────────────────┐
@@ -10,7 +12,7 @@ This document explains the timeout architecture, how values relate to each other
 │  Default: 300s. Configured in Terraform.                  │
 │  ┌───────────────────────────────────────────────────────┐│
 │  │ Code-level deadline (context.WithTimeout)             ││
-│  │ Default: 295s (execution) / 55s (reconciler/GC)      ││
+│  │ Default: 295s (execution) / 55s (scheduled routes) ││
 │  │ Configured via env vars without code change.         ││
 │  │ ┌─────────────────────────────────────────────────┐  ││
 │  │ │ Per-TA TimeoutSeconds (metadata in Go code)     │  ││
@@ -23,14 +25,14 @@ This document explains the timeout architecture, how values relate to each other
 
 ## Current Defaults
 
-| Parameter | Default | Where | What it controls |
-|---|---|---|---|
-| `lambda_api_timeout` | 300s | Terraform variable | API Lambda hard ceiling |
-| `lambda_worker_timeout` | 300s | Terraform variable | Worker Lambda hard ceiling |
-| `EXECUTION_DEADLINE_SECONDS` | 295s | Lambda env var | Code deadline for TA execution |
-| `RECONCILER_DEADLINE_SECONDS` | 55s | Lambda env var | Code deadline for reconciler/GC |
-| `MAX_BATCH_PER_TICK` | 30 | Lambda env var | Items per scheduled phase |
-| Per-TA `TimeoutSeconds` | 120s | Go code | Individual TA max runtime |
+| Parameter                     | Default | Where              | What it controls                |
+| ----------------------------- | ------- | ------------------ | ------------------------------- |
+| `lambda_api_timeout`          | 300s    | Terraform variable | API Lambda hard ceiling         |
+| `lambda_worker_timeout`       | 300s    | Terraform variable | Worker Lambda hard ceiling      |
+| `EXECUTION_DEADLINE_SECONDS`  | 295s    | Lambda env var     | Code deadline for TA execution  |
+| `RECONCILER_DEADLINE_SECONDS` | 55s     | Lambda env var     | Code deadline for reconciler, GC, and **reaper** ticks |
+| `MAX_BATCH_PER_TICK`          | 30      | Lambda env var     | Items per scheduled phase       |
+| Per-TA `TimeoutSeconds`       | 120s    | Go code            | Individual TA max runtime       |
 
 ## Constraint Rules
 
@@ -78,22 +80,47 @@ Reduce `lambda_worker_timeout` to 60s if all TAs are confirmed fast. Adjust env 
 ## How Deadlines Work in Code
 
 ### API Lambda (sync TAs)
+
 ```
 Request arrives → EXECUTION_DEADLINE_SECONDS context → Execute TA → Upload artifacts → Respond
 ```
+
 If the TA exceeds its per-TA timeout or the code deadline fires, the TA is interrupted and marked `failed`.
 
 ### Worker Lambda (scheduled routes)
+
 ```
 EventBridge trigger → RECONCILER_DEADLINE_SECONDS context → Run phase → Emit metrics → Return
 ```
-Each phase (reconciler/GC) checks `ctx.Err()` between items. If deadline fires mid-batch, remaining items are deferred to the next tick.
+
+Each scheduled route (reconciler, GC, **reaper**) shares this deadline. Phases that batch work check `ctx.Err()` between items; remaining work is deferred to the next EventBridge tick. Reaper behavior (deadline vs idle) is documented in [session reaper](../boundary/session-reaper.md).
 
 ### Worker Lambda (self-invoked TA execution)
+
 ```
 Self-invoke → EXECUTION_DEADLINE_SECONDS context → Load execution → Execute TA → Update DynamoDB → Return
 ```
+
 Per-TA timeout is enforced by the executor. If the code deadline fires before TA completes, the execution is marked `failed`.
+
+## Access Lambda and boundary sessions
+
+These limits are **orthogonal** to TA timeouts above. Long-running work runs in the **ECS boundary task**, not inside Access or API Lambda invocations.
+
+| Parameter | Default | Where | What it controls |
+| --------- | ------- | ----- | ---------------- |
+| Access Lambda timeout | **30s** | `terraform/modules/zoa-access` | Hard ceiling per session API call (`RunTask` is async; Access returns after starting the task) |
+| `lambda_access_concurrency` | 10 (prod) / **-1** (ephemeral) | Terraform | Reserved pool for laptop → Access; see [Lambda model](lambda-model.md) |
+| `SESSION_MAX_DURATION_HOURS` | 4 | Access Lambda env | Max session **deadline** written at `session_start` |
+| `SESSION_IDLE_TIMEOUT_SECONDS` | 3600 | Worker Lambda env | Idle window before reaper may stop the task |
+
+Session **deadline** and **idle** enforcement run on the Worker **`reaper`** route (5m schedule), not in Access. Do not tune session policy by changing `EXECUTION_DEADLINE_SECONDS`.
+
+| Doc | Use when |
+| --- | -------- |
+| [Session reaper](../boundary/session-reaper.md) | Deadline vs idle, SSM/CloudWatch activity, `stop_reason` |
+| [Operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership) | End-to-end session lifecycle |
+| [ZOA architecture ADR](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md) | Platform Terraform defaults (Access timeout, concurrency) |
 
 ## Billing Implications
 
@@ -104,4 +131,4 @@ Lambda bills per-millisecond of actual execution time, NOT per-timeout-value. A 
 - **Terraform**: All timeout variables have `description` fields explaining their purpose and safe ranges
 - **Env vars**: Each env var has a structured log line on Lambda startup showing its value
 - **Tests**: `TestAllRegisteredActions_TimeoutCompliance` breaks the build if any TA exceeds the ceiling
-- **This doc**: The canonical reference for timeout decisions and adjustment procedures
+- **This doc**: Canonical reference for **TA** timeout decisions; boundary session policy → [session reaper](../boundary/session-reaper.md)

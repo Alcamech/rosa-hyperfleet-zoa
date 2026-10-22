@@ -44,14 +44,19 @@ var _ = Describe("parameter validation", func() {
 			))
 		})
 
-		It("rejects invalid JIRA ticket format", func() {
+		It("rejects invalid reason format", func() {
 			tgt := targets[0]
-			// Run without the helper (which auto-adds valid JIRA)
+			// Run without the helper (which auto-adds valid reason)
 			out, err := runZoa(tgt, "run", "get_resource",
 				"--resource", "nodes",
-				"--jira", "invalid-format")
+				"--reason", "invalid-format")
 			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("PROJECT-123"))
+			// Old API (main CLI + jira field): "PROJECT-123". New API (reason field): FormatHint.
+			Expect(out).To(SatisfyAny(
+				ContainSubstring("PROJECT-123"),
+				ContainSubstring("ROSAENG-1234"),
+				ContainSubstring("not valid"),
+			))
 		})
 
 		It("rejects action that does not exist", func() {

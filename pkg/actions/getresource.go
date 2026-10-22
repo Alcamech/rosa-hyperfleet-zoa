@@ -23,16 +23,22 @@ type getResource struct{}
 
 func (g *getResource) Metadata() ActionMetadata {
 	return ActionMetadata{
-		Name:              "get_resource",
-		Scope:             "kube-api",
-		Type:              "read",
-		ExecutionMode:     "sync",
-		Description:       "Get or list Kubernetes resources by type, namespace, name, or label/field selectors. Supports any resource including CRDs.",
-		Authorization:     AuthorizationConfig{Approval: "none"},
-		DeploymentTargets: []string{DeploymentTargetRC, DeploymentTargetMC},
-		TimeoutSeconds:    60,
+		Name:           "get_resource",
+		Scope:          "kube-api",
+		Type:           "read",
+		ExecutionMode:  "sync",
+		Description:    "Get or list Kubernetes resources by type, namespace, name, or label/field selectors (including CRDs). Does not support Secrets — use get_secret instead (HCP namespace protection).",
+		Authorization:  AuthorizationConfig{Approval: "none"},
+		TargetTypes:    []string{TargetTypeRC, TargetTypeMC},
+		TimeoutSeconds: 60,
+		Examples: []string{
+			"zoa run get_resource --resource pods -n openshift-ingress --reason ROSAENG-1234",
+			"zoa run get_resource --resource pods -A -l app=nginx --reason ROSAENG-1234",
+			"zoa run get_resource --resource nodes --reason ROSAENG-1234",
+			"zoa run get_resource --resource events --param field_selector=involvedObject.name=my-pod -n default --reason ROSAENG-1234",
+		},
 		Parameters: []ParameterDef{
-			{Name: "resource", Required: true, Description: "Resource type (e.g. pods, deployments, hostedclusters, or any CRD)"},
+			{Name: "resource", Required: true, Description: "Resource type (e.g. pods, deployments, hostedclusters, CRDs). Not secrets — use get_secret."},
 			{Name: "namespace", Description: "Target namespace (omit for cluster-scoped or use all_namespaces)"},
 			{Name: "all_namespaces", Default: "false", Description: "List across all namespaces"},
 			{Name: "name", Description: "Get a specific resource by name"},

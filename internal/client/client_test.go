@@ -112,7 +112,7 @@ func TestClientDispatch(t *testing.T) {
 		}
 
 		resp, err := c.Dispatch(context.Background(), "get_nodes", &DispatchRequest{
-			Jira: "TEST-123",
+			Reason: "TEST-123",
 		})
 		if err != nil {
 			t.Fatalf("Dispatch() error = %v", err)
@@ -141,7 +141,7 @@ func TestClientDispatch(t *testing.T) {
 		}
 
 		_, err := c.Dispatch(context.Background(), "rollout_restart", &DispatchRequest{
-			Jira: "TEST-123",
+			Reason: "TEST-123",
 		})
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -290,7 +290,7 @@ func TestClientListActions(t *testing.T) {
 func TestClientListAudit(t *testing.T) {
 	t.Run("When query params provided it should pass them", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/api/v0/trusted-actions/audit" {
+			if r.URL.Path != "/api/v0/audit" {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
 			if r.URL.Query().Get("since") != "24h" {
@@ -364,6 +364,81 @@ func TestClientRawGet(t *testing.T) {
 	})
 }
 
+func TestClientDoV0_WhenLambdaRuntimeErrorOn200_ItShouldReturnLambdaError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v0/targets" {
+			t.Fatalf("path = %q, want /api/v0/targets", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"errorMessage":"RequestId: abc","errorType":"Runtime.InvalidEntrypoint"}`))
+	}))
+	defer server.Close()
+
+	c := &Client{baseURL: server.URL, region: "us-east-1", sigService: "lambda", credentials: staticCredentials{}, httpClient: http.DefaultClient}
+	_, err := c.ListTargets(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	lambdaErr, ok := err.(*LambdaRuntimeError)
+	if !ok {
+		t.Fatalf("expected *LambdaRuntimeError, got %T: %v", err, err)
+	}
+	if lambdaErr.ErrorType != "Runtime.InvalidEntrypoint" {
+		t.Errorf("expected Runtime.InvalidEntrypoint, got %q", lambdaErr.ErrorType)
+	}
+	if lambdaErr.Surface != APISurfaceZOA {
+		t.Errorf("Surface = %q, want %q", lambdaErr.Surface, APISurfaceZOA)
+	}
+	if !strings.Contains(lambdaErr.Error(), "ZOA API") {
+		t.Errorf("Error() = %q, want ZOA API prefix", lambdaErr.Error())
+	}
+}
+
+func TestClient_ListTargets_WhenAccessReturnsFullTargetMetadata_ItShouldDecodeAllFields(t *testing.T) {
+	body := `{
+		"count": 1,
+		"items": [{
+			"target_id": "eph-mc01",
+			"deployment_name": "us-east-1-eph",
+			"target_type": "mc",
+			"region": "us-east-1",
+			"status": "ready",
+			"vpc_id": "vpc-abc",
+			"subnet_ids": "subnet-a,subnet-b",
+			"security_group_id": "sg-1",
+			"ecs_cluster_arn": "arn:aws:ecs:us-east-1:123:cluster/c",
+			"task_definition_arn": "arn:aws:ecs:us-east-1:123:task-definition/td:1",
+			"function_url": "https://api.lambda-url.on.aws/",
+			"account_id": "855246887846"
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v0/targets" {
+			t.Fatalf("path = %q, want /api/v0/targets", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &Client{baseURL: server.URL, region: "us-east-1", sigService: "lambda", credentials: staticCredentials{}, httpClient: http.DefaultClient}
+	list, err := c.ListTargets(context.Background())
+	if err != nil {
+		t.Fatalf("ListTargets: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(list.Items))
+	}
+	got := list.Items[0]
+	if got.SubnetIds != "subnet-a,subnet-b" || got.SecurityGroupId != "sg-1" {
+		t.Errorf("subnet/sg: subnets=%q sg=%q", got.SubnetIds, got.SecurityGroupId)
+	}
+	if got.EcsClusterArn == "" || got.TaskDefinitionArn == "" || got.FunctionUrl == "" {
+		t.Errorf("expected ECS and function_url fields set, got cluster=%q taskDef=%q url=%q",
+			got.EcsClusterArn, got.TaskDefinitionArn, got.FunctionUrl)
+	}
+}
+
 func TestClientDo_WhenLambdaRuntimeError_ItShouldReturnLambdaError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -382,6 +457,9 @@ func TestClientDo_WhenLambdaRuntimeError_ItShouldReturnLambdaError(t *testing.T)
 	}
 	if lambdaErr.ErrorType != "Runtime.ExitError" {
 		t.Errorf("expected Runtime.ExitError, got %q", lambdaErr.ErrorType)
+	}
+	if lambdaErr.Surface != APISurfaceAPI {
+		t.Errorf("Surface = %q, want %q", lambdaErr.Surface, APISurfaceAPI)
 	}
 }
 
@@ -470,6 +548,36 @@ func TestClientDo_WhenHeadersSet_ItShouldSendAccountAndOperator(t *testing.T) {
 		operator:    "arn:aws:iam::999888:user/sre",
 	}
 	_, err := c.ListActions(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClientDoV0_WhenSessionStart_ItShouldSendAccountAndOperator(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v0/sessions/start" {
+			t.Errorf("expected path /api/v0/sessions/start, got %q", r.URL.Path)
+		}
+		if r.Header.Get("X-Account-ID") != "599476212575" {
+			t.Errorf("expected X-Account-ID, got %q", r.Header.Get("X-Account-ID"))
+		}
+		if r.Header.Get("X-Operator") != "arn:aws:sts::599476212575:assumed-role/zoa-access-invoker/slopezma" {
+			t.Errorf("expected X-Operator, got %q", r.Header.Get("X-Operator"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(SessionStartResponse{SessionID: "s1", Status: "creating"})
+	}))
+	defer server.Close()
+
+	c := &Client{
+		baseURL:     server.URL,
+		region:      "us-east-1",
+		credentials: staticCredentials{},
+		httpClient:  http.DefaultClient,
+		accountID:   "599476212575",
+		operator:    "arn:aws:sts::599476212575:assumed-role/zoa-access-invoker/slopezma",
+	}
+	_, err := c.SessionStart(context.Background(), &SessionStartRequest{Target: "mc01"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

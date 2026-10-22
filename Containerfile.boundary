@@ -1,0 +1,212 @@
+# ZOA Boundary — Ephemeral audited SRE jump box (ECS Fargate, target VPC).
+#
+# SREs connect via ECS Exec (SSM). Ships ZOA CLI, kubectl, AWS CLI v2,
+# jq, and Claude Code for Trusted Actions and assisted operational work.
+#
+# SECURITY: No curl, wget, or download tools in the final image —
+# all binaries are COPYed from builder stages. All external downloads
+# are checksum-verified.
+
+# Pinned linux/amd64 from ubi-minimal:9.8-1790555810. Mintmaker/Renovate updates digest.
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:bc2502169d857732c4ba778f69ed4fa2d25c9ef054a9f7839ac8ce65aedd6574
+
+# Pinned linux/amd64 from go-toolset:1.26.7-1790174511. Mintmaker/Renovate updates digest.
+ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:0f2be9ed624fabfe8625ffa510d2b243766249006518e551ef9e0b486f195e90
+
+# --------------------------------------------------------------------------
+# builder — Go build (zoa CLI)
+# --------------------------------------------------------------------------
+FROM ${BUILDER_IMAGE} AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+USER 0
+RUN mkdir -p /workspace && chown 1001:0 /workspace
+USER 1001
+
+WORKDIR /workspace
+ENV GOCACHE=/workspace/.cache/go-build
+
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+RUN git config --global --add safe.directory /workspace && \
+    ZOA_VERSION=$(grep '^VERSION ' Makefile | awk '{print $3}') && \
+    GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
+    BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
+    VERSION_PKG="github.com/openshift-online/rosa-seaplane-zoa/internal/version" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -buildvcs=false \
+    -ldflags="-w -s -X ${VERSION_PKG}.Version=${ZOA_VERSION} -X ${VERSION_PKG}.GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}" \
+    -o /workspace/zoa ./cmd/zoa/
+
+
+# --------------------------------------------------------------------------
+# tools — kubectl binary with SHA256 verification
+# No oc — this is an EKS container, kubectl is the native client.
+# --------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS tools
+
+ARG TARGETARCH=amd64
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION="v1.32.0"
+
+# ubi-minimal includes curl-minimal; do not install full curl (package conflict).
+WORKDIR /tools
+
+RUN curl --silent --location --fail \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+        --output kubectl \
+    && curl --silent --location --fail \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" \
+        --output kubectl.sha256 \
+    && echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status \
+    && chmod +x kubectl
+
+
+# --------------------------------------------------------------------------
+# aws-cli-builder — AWS CLI v2 (pinned version, arch-matched zip)
+# AWS publishes versioned zips (awscli-exe-linux-<arch>-<version>.zip) and PGP
+# .sig files, but no per-version SHA256 sidecar. Unversioned (latest) SHA256
+# does exist but would mismatch a pinned version. We rely on the version pin
+# for content integrity (deterministic download) and verify the installed
+# version matches the pin after install.
+# --------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS aws-cli-builder
+
+ARG TARGETARCH=amd64
+# renovate: datasource=github-releases depName=aws/aws-cli extractVersion=^(?<version>\d+\.\d+\.\d+)$
+ARG AWS_CLI_VERSION="2.27.22"
+
+RUN microdnf install --assumeyes --nodocs unzip && microdnf clean all
+
+WORKDIR /aws-dl
+
+RUN AWS_ARCH="${TARGETARCH}" \
+    && if [ "${AWS_ARCH}" = "amd64" ]; then AWS_ARCH="x86_64"; fi \
+    && curl --silent --location --fail \
+        "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}-${AWS_CLI_VERSION}.zip" \
+        --output awscli.zip \
+    && unzip -q awscli.zip \
+    && ./aws/install --install-dir /opt/aws-cli --bin-dir /opt/aws-bin \
+    && INSTALLED="$(/opt/aws-bin/aws --version | awk '{print $1}' | cut -d/ -f2)" \
+    && if [ "${INSTALLED}" != "${AWS_CLI_VERSION}" ]; then \
+         echo "ERROR: expected aws-cli/${AWS_CLI_VERSION}, got ${INSTALLED}" >&2; exit 1; \
+       fi \
+    && rm --recursive --force aws awscli.zip
+
+
+# --------------------------------------------------------------------------
+# claude-builder — Claude Code standalone binary (SHASUMS256.txt verified)
+# --------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS claude-builder
+
+ARG TARGETARCH=amd64
+# renovate: datasource=github-releases depName=anthropics/claude-code
+ARG CLAUDE_CODE_VERSION="2.1.199"
+ENV CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}"
+
+RUN microdnf install --assumeyes --nodocs tar gzip && microdnf clean all
+
+WORKDIR /claude-dl
+
+RUN ARCH=$(echo "${TARGETARCH}" | sed 's/amd64/x64/; s/arm64/arm64/') && \
+    TARBALL="claude-linux-${ARCH}.tar.gz" && \
+    curl --silent --location --fail \
+        "https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_CODE_VERSION}/${TARBALL}" \
+        --output claude.tar.gz \
+    && curl --silent --location --fail \
+        "https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_CODE_VERSION}/SHASUMS256.txt" \
+        --output SHASUMS256.txt \
+    && grep "${TARBALL}" SHASUMS256.txt | sed "s|${TARBALL}|claude.tar.gz|" | sha256sum --check --status \
+    && mkdir -p /opt/claude \
+    && tar --extract --gzip --file claude.tar.gz --directory=/opt/claude \
+    && chmod +x /opt/claude/claude
+
+
+# --------------------------------------------------------------------------
+# final — Production image. Only this stage ships.
+# --------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS final
+
+ARG VERSION=0.0.1
+ARG RELEASE=1
+ARG VCS_REF=unknown
+
+LABEL name="zoa-boundary" \
+      vendor="Red Hat, Inc." \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="ZOA Boundary — ephemeral audited SRE jump box" \
+      description="ECS Fargate task for audited SRE access to target VPCs via ECS Exec and ZOA Trusted Actions" \
+      io.k8s.display-name="zoa-boundary" \
+      io.k8s.description="VPC-local ECS Exec shell for ZOA sessions and Trusted Actions" \
+      com.redhat.component="zoa-boundary-container" \
+      distribution-scope="private" \
+      url="https://github.com/openshift-online/rosa-seaplane-zoa" \
+      org.opencontainers.image.title="zoa-boundary" \
+      org.opencontainers.image.description="ECS Fargate jump box for audited ZOA sessions and Trusted Actions" \
+      org.opencontainers.image.vendor="Red Hat, Inc." \
+      org.opencontainers.image.source="https://github.com/openshift-online/rosa-seaplane-zoa" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
+# util-linux: provides /usr/bin/script — required by ECS Exec for command
+# transcript upload to CloudWatch (AWS ECS Exec logging docs; cat is in coreutils).
+RUN microdnf install --assumeyes --nodocs \
+        bash-completion \
+        bind-utils \
+        jq \
+        openssl \
+        procps-ng \
+        shadow-utils \
+        tar \
+        gzip \
+        util-linux \
+        vim-minimal \
+    && microdnf clean all \
+    && rm --recursive --force /var/cache/yum
+
+COPY --from=builder /workspace/zoa /usr/local/bin/zoa
+COPY --from=tools /tools/kubectl /usr/local/bin/kubectl
+COPY --from=aws-cli-builder /opt/aws-cli /usr/local/aws-cli
+# aws/install uses absolute symlinks (/opt/aws-cli/...); rewire for /usr/local/aws-cli.
+RUN VERSION_DIR="$(ls /usr/local/aws-cli/v2 | grep -v '^current$' | head -1)" \
+    && test -n "${VERSION_DIR}" \
+    && rm --force /usr/local/aws-cli/v2/current \
+    && ln --symbolic "${VERSION_DIR}" /usr/local/aws-cli/v2/current \
+    && ln --symbolic "/usr/local/aws-cli/v2/${VERSION_DIR}/dist/aws" /usr/local/bin/aws \
+    && ln --symbolic "/usr/local/aws-cli/v2/${VERSION_DIR}/dist/aws_completer" /usr/local/bin/aws_completer \
+    && /usr/local/bin/aws --version
+COPY --from=claude-builder /opt/claude /usr/local/lib/claude-code
+RUN ln --symbolic /usr/local/lib/claude-code/claude /usr/local/bin/claude
+
+# Generate shell completions for all CLIs that support it
+RUN zoa completion bash > /etc/bash_completion.d/zoa \
+    && kubectl completion bash > /etc/bash_completion.d/kubectl \
+    && echo 'complete -C /usr/local/bin/aws_completer aws' \
+        > /etc/bash_completion.d/aws
+
+# UID 1000 matches ECS task definition user (non-root, no package installs).
+RUN useradd --uid 1000 --create-home --shell /bin/bash sre
+
+# Baked home for the sre user (Claude + shell). Ephemeral per task — no EFS skel copy at runtime.
+COPY --chown=sre:sre boundary/home-sre/ /home/sre/
+COPY --chmod=755 boundary/zoa-boundary-entrypoint.sh /usr/local/bin/zoa-boundary-entrypoint.sh
+RUN mkdir --parents /etc/zoa-boundary
+COPY --chmod=644 boundary/zoa-boundary-banner.sh /etc/zoa-boundary/banner.sh
+# Claude Code looks for ~/.local/bin/claude first; point at the image binary.
+RUN mkdir --parents /home/sre/.local/bin \
+    && ln --symbolic /usr/local/bin/claude /home/sre/.local/bin/claude \
+    && chown --recursive sre:sre /home/sre/.local
+
+# Claude/Bedrock flags and model ID: ECS task env from Terraform overrides these for Fargate.
+ENV HOME=/home/sre \
+    CLAUDE_CODE_USE_BEDROCK=1 \
+    DISABLE_AUTOUPDATER=1
+
+USER sre
+WORKDIR /home/sre
+
+ENTRYPOINT ["/usr/local/bin/zoa-boundary-entrypoint.sh"]
+CMD ["sleep", "infinity"]

@@ -17,34 +17,36 @@ make all                    # fmt → vet → lint → test → build
 
 ## Build Targets
 
-| Target | What it does |
-|--------|-------------|
-| `make all` | fmt → vet → lint → test → build (run before pushing) |
-| `make build` | Build `./bin/zoa` |
-| `make dist` | Cross-compile CLI for GitHub Releases (`./dist`) |
-| `make install` | Install to `$GOBIN` |
-| `make fmt` | Format code (`gofmt -w -s`) |
-| `make vet` | Static analysis (`go vet`) |
-| `make lint` | Lint (`golangci-lint`) |
-| `make test` | Unit tests with coverage and race detection |
-| `make verify` | Read-only checks (`fmt-check + vet + lint`) |
-| `make tidy` | Clean up `go.mod` / `go.sum` |
-| `make test-e2e` | E2E deep suite (requires `ZOA_RC_API_URL` / `ZOA_MC_API_URL`) |
-| `make test-e2e-smoke` | E2E smoke subset only (~2min) |
-| `make image-lambda` | Build Lambda container image |
-| `make image-runner` | Build runner container image |
-| `make image-push-lambda` | Build + push Lambda image (`:latest` + `:commit`) |
-| `make image-push-runner` | Build + push runner image (`:latest` + `:commit`) |
-| `make images-push` | Build + push both images (single command for dev workflow) |
+| Target                     | What it does                                                                |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `make all`                 | fmt → vet → lint → test → build (run before pushing)                        |
+| `make build`               | Build `./bin/zoa`                                                           |
+| `make dist`                | Cross-compile CLI for GitHub Releases (`./dist`)                            |
+| `make install`             | Install to `$GOBIN`                                                         |
+| `make fmt`                 | Format code (`gofmt -w -s`)                                                 |
+| `make vet`                 | Static analysis (`go vet`)                                                  |
+| `make lint`                | Lint (`golangci-lint`)                                                      |
+| `make test`                | Unit tests with coverage and race detection                                 |
+| `make verify`              | Read-only checks (`fmt-check + vet + lint`)                                 |
+| `make tidy`                | Clean up `go.mod` / `go.sum`                                                |
+| `make test-e2e`            | E2E deep suite (requires `ZOA_RC_API_URL` / `ZOA_MC_API_URL`)               |
+| `make test-e2e-smoke`      | E2E smoke subset only (~2min)                                               |
+| `make image-lambda`        | Build Lambda container image                                                |
+| `make image-runner`        | Build runner container image                                                |
+| `make image-boundary`      | Build ZOA Boundary ECS task image (`Containerfile.boundary`)                |
+| `make image-push-lambda`   | Build + push Lambda image (`:latest` + `:commit`)                           |
+| `make image-push-runner`   | Build + push runner image (`:latest` + `:commit`)                           |
+| `make image-push-boundary` | Build + push boundary image (`:latest` + `:commit`)                         |
+| `make images-push`         | Build + push lambda, runner, and boundary (single command for dev workflow) |
 
 ## Binaries
 
 This repository produces three binaries:
 
-| Binary | Entry Point | Purpose |
-|--------|-------------|---------|
-| `zoa` | `cmd/zoa/main.go` | CLI for operators |
-| `zoa-lambda` | `cmd/zoa-lambda/main.go` | Lambda function (API + Worker modes, deployed per VPC) |
+| Binary       | Entry Point              | Purpose                                                   |
+| ------------ | ------------------------ | --------------------------------------------------------- |
+| `zoa`        | `cmd/zoa/main.go`        | CLI for operators                                         |
+| `zoa-lambda` | `cmd/zoa-lambda/main.go` | Lambda function (API + Worker modes, deployed per VPC)    |
 | `zoa-runner` | `cmd/zoa-runner/main.go` | Async Job runner (executes inside K8s Jobs for async TAs) |
 
 ## Testing
@@ -101,11 +103,11 @@ credentials.
 CI runs via [OpenShift CI (Prow)](https://prow.ci.openshift.org/).
 Config: [`openshift/release` — `ci-operator/config/openshift-online/rosa-seaplane-zoa/`](https://github.com/openshift/release/blob/master/ci-operator/config/openshift-online/rosa-seaplane-zoa/openshift-online-rosa-seaplane-zoa-main.yaml).
 
-| Job | What it checks |
-|-----|----------------|
-| `lint` | `make fmt-check` + `make lint` |
-| `test` | `make test` + coverage artifacts |
-| `verify` | `make verify` |
+| Job             | What it checks                                                                  |
+| --------------- | ------------------------------------------------------------------------------- |
+| `lint`          | `make fmt-check` + `make lint`                                                  |
+| `test`          | `make test` + coverage artifacts                                                |
+| `verify`        | `make verify`                                                                   |
 | `on-demand-e2e` | Full e2e against an ephemeral env with this PR's images (`/test on-demand-e2e`) |
 
 ## Commit Conventions
@@ -135,21 +137,26 @@ workflow then:
 Install instructions for end users are in the
 [CLI Reference](cli-reference.md#install).
 
-Lambda and runner images are separate; they are not GitHub Release assets.
+Lambda, runner, and boundary images are separate; they are not GitHub Release assets.
 
 ## Container Images
 
-| Image | Containerfile | Purpose |
-|-------|---------------|---------|
-| `zoa-lambda` | `Containerfile` | Lambda container (UBI-minimal + `zoa-lambda` binary) |
-| `zoa-runner` | `Containerfile.runner` | Async runner (UBI9 + `zoa-runner` + `zoa` CLI, runs inside K8s Jobs) |
+| Image          | Containerfile            | Purpose                                                                       |
+| -------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `zoa-lambda`   | `Containerfile`          | Lambda container (UBI-minimal + `zoa-lambda` binary)                          |
+| `zoa-runner`   | `Containerfile.runner`   | Async runner (UBI9 + `zoa-runner` + `zoa` CLI, runs inside K8s Jobs)          |
+| `zoa-boundary` | `Containerfile.boundary` | Boundary ECS task (UBI9 + `zoa` CLI, aws/kubectl/jq, Claude Code via Bedrock) |
+
+Default Quay repos for local push: `quay.io/rrp-dev-ci/zoa-{lambda,runner,boundary}` (override with `IMAGE_REPO`, `RUNNER_IMAGE_REPO`, `BOUNDARY_IMAGE_REPO`).
 
 ```bash
-make image-lambda        # Build Lambda image only
-make image-runner        # Build runner image only
-make image-push-lambda   # Build + push Lambda (:latest + :commit)
-make image-push-runner   # Build + push runner (:latest + :commit)
-make images-push         # Build + push both images (dev workflow)
+make image-lambda          # Build Lambda image only
+make image-runner          # Build runner image only
+make image-boundary        # Build boundary image only
+make image-push-lambda     # Build + push Lambda (:latest + :commit)
+make image-push-runner     # Build + push runner (:latest + :commit)
+make image-push-boundary   # Build + push boundary (:latest + :commit)
+make images-push           # Build + push all three images (dev workflow)
 ```
 
 ## GVM Users

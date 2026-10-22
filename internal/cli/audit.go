@@ -131,18 +131,20 @@ func listAudit(ctx context.Context, global *GlobalOptions, opts *auditOptions) e
 		return output.JSON(os.Stdout, list)
 	}
 
+	wide := global.OutputFormat == output.FormatWide
+
 	if len(list.Items) == 0 {
 		fmt.Fprintln(os.Stderr, "No audit entries found")
 		return nil
 	}
 
 	type row struct {
-		ts, method, operator, action, target, sourceIP, userAgent, jira, approval, execID, path string
-		code                                                                                    int
+		ts, method, operator, signerARN, sessionID, action, target, sourceIP, userAgent, reasonStr, approval, execID, path string
+		code                                                                                                               int
 	}
 
 	rows := make([]row, 0, len(list.Items))
-	maxAction, maxTarget, maxIP, maxUA, maxJira := 6, 6, 9, 10, 4
+	maxAction, maxTarget, maxIP, maxUA, maxReason := 6, 6, 9, 10, 4
 
 	for _, e := range list.Items {
 		ts := e.Timestamp
@@ -165,9 +167,9 @@ func listAudit(ctx context.Context, global *GlobalOptions, opts *auditOptions) e
 		if len(target) > maxTarget {
 			maxTarget = len(target)
 		}
-		jira := output.Dash(e.Jira)
-		if len(jira) > maxJira {
-			maxJira = len(jira)
+		reasonCol := output.Dash(e.Reason)
+		if len(reasonCol) > maxReason {
+			maxReason = len(reasonCol)
 		}
 		sourceIP := output.Dash(e.SourceIP)
 		if len(sourceIP) > maxIP {
@@ -182,36 +184,49 @@ func listAudit(ctx context.Context, global *GlobalOptions, opts *auditOptions) e
 			ts:        ts,
 			method:    e.Method,
 			code:      e.StatusCode,
-			operator:  output.ShortOperator(e.Operator),
+			operator:  e.Operator,
+			signerARN: e.SignerARN,
+			sessionID: e.SessionID,
 			action:    actionStr,
 			target:    target,
 			sourceIP:  sourceIP,
 			userAgent: userAgent,
-			jira:      jira,
+			reasonStr: reasonCol,
 			approval:  output.Dash(e.ApprovalState),
 			execID:    output.Dash(e.ExecutionID),
-			path:      strings.TrimPrefix(output.Dash(e.Path), "/api/v0/trusted-actions/"),
+			path:      formatAuditPathForTable(output.Dash(e.Path)),
 		})
 	}
 
-	fmtStr := fmt.Sprintf("%%-19s  %%-6s  %%-4s  %%-12s  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-14s  %%-36s  %%s\n",
-		maxAction, maxTarget, maxIP, maxUA, maxJira)
-	fmt.Fprintf(os.Stdout, fmtStr,
-		"TIMESTAMP", "METHOD", "CODE", "OPERATOR", "ACTION", "TARGET", "SOURCE_IP", "USER_AGENT", "JIRA", "APPROVAL", "EXEC_ID", "PATH")
+	if wide {
+		tw := output.NewTable(os.Stdout)
+		fmt.Fprintln(tw, "TIMESTAMP\tMETHOD\tCODE\tOPERATOR\tSIGNER_ARN\tSESSION_ID\tACTION\tTARGET\tSOURCE_IP\tUSER_AGENT\tREASON\tAPPROVAL\tEXEC_ID\tPATH")
+		for _, r := range rows {
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.ts, r.method, r.code, r.operator, r.signerARN, output.Dash(r.sessionID),
+				r.action, r.target, r.sourceIP, r.userAgent, r.reasonStr, r.approval, r.execID, r.path)
+		}
+		return tw.Flush()
+	}
 
-	fmtRow := fmt.Sprintf("%%-19s  %%-6s  %%-4d  %%-12s  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-14s  %%-36s  %%s\n",
-		maxAction, maxTarget, maxIP, maxUA, maxJira)
+	fmtStr := fmt.Sprintf("%%-19s  %%-6s  %%-4s  %%-20s  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-14s  %%-36s  %%s\n",
+		maxAction, maxTarget, maxIP, maxUA, maxReason)
+	fmt.Fprintf(os.Stdout, fmtStr,
+		"TIMESTAMP", "METHOD", "CODE", "OPERATOR", "ACTION", "TARGET", "SOURCE_IP", "USER_AGENT", "REASON", "APPROVAL", "EXEC_ID", "PATH")
+
+	fmtRow := fmt.Sprintf("%%-19s  %%-6s  %%-4d  %%-20s  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-14s  %%-36s  %%s\n",
+		maxAction, maxTarget, maxIP, maxUA, maxReason)
 	for _, r := range rows {
 		fmt.Fprintf(os.Stdout, fmtRow,
 			r.ts,
 			r.method,
 			r.code,
-			output.Truncate(r.operator, 12),
+			r.operator,
 			r.action,
 			r.target,
 			r.sourceIP,
 			output.Truncate(r.userAgent, 20),
-			r.jira,
+			r.reasonStr,
 			r.approval,
 			r.execID,
 			r.path,
@@ -219,4 +234,15 @@ func listAudit(ctx context.Context, global *GlobalOptions, opts *auditOptions) e
 	}
 
 	return nil
+}
+
+// formatAuditPathForTable normalizes stored paths for human tables: drop /api/v0/
+// so PATH shows the route family (audit, sessions/..., trusted-actions/..., future breakglass/...).
+// JSON output keeps the full path from the API.
+func formatAuditPathForTable(path string) string {
+	const prefix = "/api/v0/"
+	if strings.HasPrefix(path, prefix) {
+		return path[len(prefix):]
+	}
+	return path
 }

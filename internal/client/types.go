@@ -18,8 +18,10 @@ type Execution struct {
 	Type            string            `json:"type"`
 	DryRun          bool              `json:"dry_run"`
 	Force           bool              `json:"force"`
-	Jira            string            `json:"jira,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 	Operator        string            `json:"operator,omitempty"`
+	SignerARN       string            `json:"signer_arn,omitempty"`
+	SessionID       string            `json:"session_id,omitempty"`
 	Revision        string            `json:"revision,omitempty"`
 	Params          map[string]string `json:"params,omitempty"`
 	CreatedAt       *time.Time        `json:"created_at,omitempty"`
@@ -75,7 +77,7 @@ type ExecutionList struct {
 }
 
 type DispatchRequest struct {
-	Jira           string            `json:"jira"`
+	Reason         string            `json:"reason"`
 	Params         map[string]string `json:"params,omitempty"`
 	Force          bool              `json:"force"`
 	DryRun         bool              `json:"dry_run"`
@@ -117,6 +119,7 @@ type Action struct {
 	Type                 string              `json:"type"`
 	ExecutionMode        string              `json:"execution_mode,omitempty"`
 	Description          string              `json:"description"`
+	Examples             []string            `json:"examples,omitempty"`
 	Params               []ActionParam       `json:"parameters,omitempty"`
 	Authorization        ActionAuthorization `json:"authorization,omitempty"`
 	DryRunAction         string              `json:"dry_run_action,omitempty"`
@@ -134,12 +137,14 @@ type AuditEntry struct {
 	Path          string `json:"path"`
 	StatusCode    int    `json:"status_code"`
 	Operator      string `json:"operator"`
+	SignerARN     string `json:"signer_arn,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 	Action        string `json:"action,omitempty"`
 	TargetCluster string `json:"target_cluster,omitempty"`
 	SourceIP      string `json:"source_ip,omitempty"`
 	RequestID     string `json:"request_id,omitempty"`
 	UserAgent     string `json:"user_agent,omitempty"`
-	Jira          string `json:"jira,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 	Force         bool   `json:"force,omitempty"`
 	DryRun        bool   `json:"dry_run,omitempty"`
 	ApprovalState string `json:"approval_state,omitempty"`
@@ -166,44 +171,164 @@ type ServerVersionInfo struct {
 	Target    string `json:"target"`
 }
 
+// APISurface identifies which ZOA HTTP endpoint returned an error (for CLI logs and bug reports).
+type APISurface string
+
+const (
+	// APISurfaceZOA is the unified label for all ZOA v0 HTTP APIs (TA and Access planes).
+	APISurfaceZOA APISurface = "ZOA API"
+	// APISurfaceAPI is an alias for APISurfaceZOA (Trusted Action Lambda).
+	APISurfaceAPI = APISurfaceZOA
+	// APISurfaceAccess is an alias for APISurfaceZOA (Access Lambda).
+	APISurfaceAccess = APISurfaceZOA
+)
+
 type APIError struct {
-	Code    string `json:"code"`
-	Reason  string `json:"reason"`
-	Message string `json:"message,omitempty"`
+	Code       string     `json:"code"`
+	Reason     string     `json:"reason"`
+	Message    string     `json:"message,omitempty"`
+	Surface    APISurface `json:"-"`
+	HTTPStatus int        `json:"-"`
 }
 
 func (e *APIError) Error() string {
+	var msg string
 	if e.Reason != "" {
-		return e.Reason
+		msg = e.Reason
+	} else if e.Message != "" {
+		msg = e.Message
+	} else {
+		msg = e.Code
 	}
-	if e.Message != "" {
-		return e.Message
-	}
-	return e.Code
+	return formatClientError(e.Surface, e.HTTPStatus, msg)
 }
 
 // LambdaRuntimeError is returned by AWS Lambda Function URLs when the Lambda
 // function crashes, times out, or returns an unhandled error. The format differs
 // from ZOA's APIError.
 type LambdaRuntimeError struct {
-	ErrorMessage string `json:"errorMessage"`
-	ErrorType    string `json:"errorType"`
+	ErrorMessage string     `json:"errorMessage"`
+	ErrorType    string     `json:"errorType"`
+	Surface      APISurface `json:"-"`
+	HTTPStatus   int        `json:"-"`
+}
+
+func formatClientError(surface APISurface, httpStatus int, detail string) string {
+	if surface != "" && httpStatus > 0 {
+		return fmt.Sprintf("%s (HTTP %d): %s", surface, httpStatus, detail)
+	}
+	if surface != "" {
+		return string(surface) + ": " + detail
+	}
+	if httpStatus > 0 {
+		return fmt.Sprintf("HTTP %d: %s", httpStatus, detail)
+	}
+	return detail
+}
+
+func (e *LambdaRuntimeError) awsFacts() string {
+	if e.ErrorMessage != "" {
+		return fmt.Sprintf("aws %s: %s", e.ErrorType, e.ErrorMessage)
+	}
+	return fmt.Sprintf("aws %s", e.ErrorType)
 }
 
 func (e *LambdaRuntimeError) Error() string {
 	switch e.ErrorType {
 	case "Runtime.ExitError":
-		return "ZOA API is unavailable (Lambda failed to start — check CloudWatch logs for startup health failures)"
+		detail := fmt.Sprintf("%s — Lambda failed to start; check CloudWatch", e.awsFacts())
+		return formatClientError(e.Surface, e.HTTPStatus, detail)
+	case "Runtime.InvalidEntrypoint":
+		detail := fmt.Sprintf("%s — Lambda did not start; check function CPU arch vs image and CloudWatch", e.awsFacts())
+		return formatClientError(e.Surface, e.HTTPStatus, detail)
 	case "Runtime.DeadlineExceeded":
-		return "ZOA API timed out (Lambda execution deadline exceeded)"
+		detail := fmt.Sprintf("%s — Lambda execution deadline exceeded", e.awsFacts())
+		return formatClientError(e.Surface, e.HTTPStatus, detail)
 	default:
-		if e.ErrorMessage != "" {
-			return fmt.Sprintf("ZOA API error [%s]: %s", e.ErrorType, e.ErrorMessage)
-		}
-		return fmt.Sprintf("ZOA API error: %s", e.ErrorType)
+		return formatClientError(e.Surface, e.HTTPStatus, e.awsFacts())
 	}
 }
 
 func (e *LambdaRuntimeError) IsUnavailable() bool {
-	return e.ErrorType == "Runtime.ExitError"
+	return e.ErrorType == "Runtime.ExitError" || e.ErrorType == "Runtime.InvalidEntrypoint"
+}
+
+// --- Access / Boundary types ---
+
+type Target struct {
+	TargetID          string `json:"target_id"`
+	DeploymentName    string `json:"deployment_name"`
+	VpcId             string `json:"vpc_id,omitempty"`
+	SubnetIds         string `json:"subnet_ids,omitempty"`
+	SecurityGroupId   string `json:"security_group_id,omitempty"`
+	EcsClusterArn     string `json:"ecs_cluster_arn,omitempty"`
+	TaskDefinitionArn string `json:"task_definition_arn,omitempty"`
+	AccountId         string `json:"account_id,omitempty"`
+	TargetType        string `json:"target_type"`
+	Region            string `json:"region"`
+	Status            string `json:"status,omitempty"`
+	FunctionUrl       string `json:"function_url,omitempty"`
+}
+
+type TargetList struct {
+	Items []Target `json:"items"`
+	Count int      `json:"count"`
+}
+
+type Session struct {
+	SessionID      string   `json:"session_id"`
+	Operator       string   `json:"operator"`
+	SignerARN      string   `json:"signer_arn,omitempty"`
+	AccountID      string   `json:"account_id,omitempty"`
+	TaskID         string   `json:"task_id,omitempty"`
+	Reason         string   `json:"reason,omitempty"`
+	TargetCluster  string   `json:"target_cluster"`
+	Status         string   `json:"status"`
+	Region         string   `json:"region,omitempty"`
+	EcsCluster     string   `json:"ecs_cluster,omitempty"`
+	TaskArn        string   `json:"task_arn,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
+	Deadline       string   `json:"deadline,omitempty"`
+	CompletedAt    string   `json:"terminated_at,omitempty"`
+	StopReason     string   `json:"stop_reason,omitempty"`
+	ExecSessionIDs []string `json:"exec_session_ids,omitempty"`
+}
+
+type SessionList struct {
+	Items []Session `json:"items"`
+	Count int       `json:"count"`
+}
+
+type SessionStartRequest struct {
+	DeploymentName string `json:"deployment_name"`
+	Target         string `json:"target"`
+	Reason         string `json:"reason"`
+}
+
+type SessionStartResponse struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	Target    string `json:"target,omitempty"`
+	TaskArn   string `json:"task_arn,omitempty"`
+	Region    string `json:"region,omitempty"`
+	Deadline  string `json:"deadline,omitempty"`
+}
+
+type SessionJoinResponse struct {
+	SessionID       string           `json:"session_id"`
+	TaskArn         string           `json:"task_arn"`
+	ClusterArn      string           `json:"cluster"`
+	ContainerName   string           `json:"container_name"`
+	Region          string           `json:"region"`
+	ExecCommand     string           `json:"exec_command"`
+	ExecCredentials *ExecCredentials `json:"exec_credentials"`
+	Deadline        string           `json:"deadline,omitempty"`
+}
+
+// ExecCredentials are vended by ZOA Access on session join for scoped ECS Exec.
+type ExecCredentials struct {
+	AccessKeyID     string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+	SessionToken    string `json:"session_token"`
+	Expiration      string `json:"expiration"`
 }

@@ -195,13 +195,13 @@ func TestMustGatherMetadata(t *testing.T) {
 	})
 
 	t.Run("When checking deployment targets it should register on rc and mc", func(t *testing.T) {
-		want := []string{DeploymentTargetRC, DeploymentTargetMC}
-		if len(meta.DeploymentTargets) != len(want) {
-			t.Fatalf("expected %v deployment targets, got %v", want, meta.DeploymentTargets)
+		want := []string{TargetTypeRC, TargetTypeMC}
+		if len(meta.TargetTypes) != len(want) {
+			t.Fatalf("expected %v deployment targets, got %v", want, meta.TargetTypes)
 		}
 		for _, target := range want {
-			if !slices.Contains(meta.DeploymentTargets, target) {
-				t.Errorf("expected deployment target %q in %v", target, meta.DeploymentTargets)
+			if !slices.Contains(meta.TargetTypes, target) {
+				t.Errorf("expected deployment target %q in %v", target, meta.TargetTypes)
 			}
 		}
 	})
@@ -1074,10 +1074,10 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 
 	t.Run("When gather is rc only it should not require cluster_id", func(t *testing.T) {
 		params := &ExecutionParams{
-			Params:           map[string]string{"gather": "rc", "skip_must_gather_image": "true"},
-			DeploymentTarget: "rc",
-			KubeClient:       fake.NewClientset(),
-			Logger:           mustGatherTestLogger(),
+			Params:     map[string]string{"gather": "rc", "skip_must_gather_image": "true"},
+			TargetType: "rc",
+			KubeClient: fake.NewClientset(),
+			Logger:     mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err != nil {
 			t.Fatalf("unexpected validation error: %v", err)
@@ -1086,10 +1086,10 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 
 	t.Run("When gather is mc only it should not require cluster_id", func(t *testing.T) {
 		params := &ExecutionParams{
-			Params:           map[string]string{"gather": "mc", "skip_must_gather_image": "true"},
-			DeploymentTarget: "mc",
-			KubeClient:       fake.NewClientset(),
-			Logger:           mustGatherTestLogger(),
+			Params:     map[string]string{"gather": "mc", "skip_must_gather_image": "true"},
+			TargetType: "mc",
+			KubeClient: fake.NewClientset(),
+			Logger:     mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err != nil {
 			t.Fatalf("unexpected validation error: %v", err)
@@ -1114,10 +1114,10 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 				"cluster_id":             "abc123",
 				"skip_must_gather_image": "true",
 			},
-			DeploymentTarget: "mc",
-			KubeClient:       fake.NewClientset(),
-			DynamicClient:    mustGatherHostedClusterClient("demo", "cluster-abc123"),
-			Logger:           mustGatherTestLogger(),
+			TargetType:    "mc",
+			KubeClient:    fake.NewClientset(),
+			DynamicClient: mustGatherHostedClusterClient("demo", "cluster-abc123"),
+			Logger:        mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err != nil {
 			t.Fatalf("unexpected validation error: %v", err)
@@ -1131,9 +1131,9 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 				"cluster_id":             "abc123",
 				"skip_must_gather_image": "true",
 			},
-			DeploymentTarget: "mc",
-			KubeClient:       fake.NewClientset(),
-			Logger:           mustGatherTestLogger(),
+			TargetType: "mc",
+			KubeClient: fake.NewClientset(),
+			Logger:     mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err == nil {
 			t.Fatal("expected validation error when HostedCluster cannot be resolved")
@@ -1142,10 +1142,10 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 
 	t.Run("When gather rc on mc deployment it should fail", func(t *testing.T) {
 		params := &ExecutionParams{
-			Params:           map[string]string{"gather": "rc"},
-			DeploymentTarget: "mc",
-			KubeClient:       fake.NewClientset(),
-			Logger:           mustGatherTestLogger(),
+			Params:     map[string]string{"gather": "rc"},
+			TargetType: "mc",
+			KubeClient: fake.NewClientset(),
+			Logger:     mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err == nil {
 			t.Fatal("expected validation error for gather=rc on mc endpoint")
@@ -1158,9 +1158,9 @@ func TestMustGatherValidateGatherTargets(t *testing.T) {
 				"gather":     "hcp",
 				"cluster_id": "abc123",
 			},
-			DeploymentTarget: "rc",
-			KubeClient:       fake.NewClientset(),
-			Logger:           mustGatherTestLogger(),
+			TargetType: "rc",
+			KubeClient: fake.NewClientset(),
+			Logger:     mustGatherTestLogger(),
 		}
 		if err := action.Validate(context.Background(), params); err == nil {
 			t.Fatal("expected validation error for gather=hcp on rc endpoint")

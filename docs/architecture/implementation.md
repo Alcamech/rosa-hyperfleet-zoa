@@ -2,11 +2,15 @@
 
 This document covers internal implementation details of the ZOA Lambda execution engine. For the high-level architecture, see [Lambda Model](lambda-model.md).
 
+**Planes:** **Access** (laptop → sessions, RC, no VPC) and **API/Worker** (per-VPC TAs + reaper) share one image (`HANDLER_MODE`). Production TA dispatch is from inside the **boundary** container, not the laptop — end-to-end sequence: [Operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership). Control-plane layout: [ZOA Boundary — architecture](../boundary/architecture.md).
+
 ## Execution Flow (Sync)
+
+The diagram below is the **API Lambda TA path** (caller signs with SigV4). In production the caller is the boundary task role; human attribution uses the [identity bridge](../boundary/identity-bridge.md) (`pkg/api/identity.go` → `GetByTaskID`).
 
 ```mermaid
 sequenceDiagram
-    participant CLI as CLI (SigV4)
+    participant CLI as Caller (SigV4)
     participant API as API Lambda
     participant EKS as Target EKS
     participant DDB as DynamoDB
@@ -102,11 +106,13 @@ sequenceDiagram
 ## What Gets Created
 
 **Sync** — ephemeral K8s resources created and destroyed within a single Lambda invocation:
+
 - ServiceAccount + Role + RoleBinding (scoped RBAC from TA metadata)
 - TA executes via SA impersonation (K8s audit logs show only the declared RBAC)
 - Output uploaded to S3, status updated in DynamoDB, all resources cleaned up before responding
 
 **Async** — a K8s Job with separated execution and upload permissions:
+
 - ServiceAccount + Role + RoleBinding (K8s RBAC for TA execution only)
 - STS Secret with scoped session credentials (S3 upload only, restricted to execution prefix via session policy)
 - Job runs `zoa-runner` which executes the TA and uploads output to S3
@@ -122,6 +128,7 @@ Standard Lambda response body is limited to 6MB. Native Go streaming (`LambdaFun
 ### `pkg/actions` — Trusted Action Registry
 
 Defines the `Action` interface (`Metadata`, `Validate`, `Execute`) and a global in-memory registry. Each TA is a standalone Go type that self-registers at init-time. The package also provides:
+
 - `ActionMetadata` — declarative TA manifest (scope, type, RBAC, parameters, timeouts, cooldown, dry-run link)
 - `RBACConfig` / `RBACRule` — per-TA Kubernetes RBAC expressed as code, used by the executor to create Role/ClusterRole
 - `ValidateRequiredParams` / `ApplyDefaults` — shared validation helpers so TAs don't repeat boilerplate
@@ -134,6 +141,7 @@ Converts AWS Lambda Function URL events (`events.LambdaFunctionURLRequest`) into
 ### `pkg/metrics` — CloudWatch EMF Instrumentation
 
 Emits [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html) structured JSON to stdout, which CloudWatch Logs automatically parses into CloudWatch Metrics (scraped by YACE into Prometheus for alerting). HTTP metrics are emitted once per request from `pkg/api/router.go` (not middleware). Key helpers:
+
 - `Emit()` — writes a single EMF log line with sorted dimension keys and metric values
 - `NormalizeRoute()` / `StatusClass()` — low-cardinality HTTP route templates and status buckets
 - `EmitHTTPRequest()` — `HttpRequestCount` + `HttpRequestDuration` per API request
@@ -149,18 +157,23 @@ See [observability.md](../observability.md) for the full EMF catalog and metrics
 
 Routes incoming HTTP requests to the appropriate handler. Uses Go 1.22+ `net/http` ServeMux with method-based routing.
 
+- **`router.go` / `dispatch.go`** — TA plane (`HANDLER_MODE=api`): when `SESSIONS_TABLE` is configured, `ResolveIdentity` maps boundary task role ARN → operator + `session_id` before audit/execution writes. Design: [identity bridge](../boundary/identity-bridge.md).
+- **`access.go`** — Session plane (`HANDLER_MODE=access`): DynamoDB sessions, SSM targets, `ecs:RunTask`; no TA dispatch.
+
 ### `pkg/handler` — Lambda Event Router
 
-The unified Lambda entry point. Routes events by structure:
-- `requestContext` present → HTTP event (API mode)
-- `route` = `execute` → self-invoked TA execution (Worker mode)
-- `route` = `reconciler`/`gc` → scheduled event (Worker mode)
+The unified Lambda entry point (`HANDLER_MODE` = `api`, `worker`, or `access`). Routes events by structure:
+
+- `requestContext` present → HTTP event (**api** or **access** mode; see `pkg/api/router.go` vs `pkg/api/access.go`)
+- `route` = `execute` → self-invoked TA execution (worker mode)
+- `route` = `reconciler` / `gc` / `reaper` → scheduled event (worker mode)
 
 ### `pkg/executor` — Execution Engine
 
 Differentiates by action scope:
 
 **kube-api scope:**
+
 1. Ensure `zoa-jobs` namespace exists (idempotent)
 2. Create per-execution ServiceAccount (labeled for GC)
 3. Create Role/ClusterRole + Binding from TA's RBAC metadata
@@ -170,6 +183,7 @@ Differentiates by action scope:
 7. Cleanup all K8s resources (SA, Role, Binding)
 
 **aws-api scope:**
+
 - Assume the appropriate IAM role (read or write) via STS
 - Pass AWS config directly to the action
 - No K8s resources created or cleaned up
@@ -180,52 +194,60 @@ All K8s resource creation retries with exponential backoff (up to 5 attempts) fo
 
 - **Reconciler** (1m): Polls for dispatched async executions, checks K8s Job status, transitions to succeeded/failed
 - **GC** (5m): Finds orphaned K8s resources in `zoa-jobs` by label, cross-references DynamoDB, deletes stale resources
+- **Reaper** (5m): Boundary session deadline and idle enforcement (`pkg/scheduler/reaper.go`); see [session reaper](../boundary/session-reaper.md)
+
+### `pkg/api/access.go` — Access Lambda HTTP API
+
+Session lifecycle (`session_start`, join, terminate, exec-attached), target listing, and Access-plane audit. No TA dispatch. Invoked from the laptop only (Function URL in RC account, no VPC). Target registry is **SSM** (not DynamoDB) — see [deployment discovery](../guides/deployments-discovery.md) and [Boundary architecture — Discovery](../boundary/architecture.md#discovery-ssm).
 
 ### `pkg/store` — DynamoDB Persistence
 
-**Executions table:**
-- PK: `executionId`
-- GSI `account-index`: PK=`accountId`, SK=`createdAt`
-- GSI `status-index`: PK=`status`, SK=`createdAt`
-- GSI `target-status-index`: PK=`targetCluster#status`, SK=`createdAt`
+See [storage](storage.md) for full GSI layout.
 
-**Audit table:**
-- PK: `accountId`, SK: `timestamp` (nanosecond precision)
+**Executions:** PK `executionId`; GSIs `target-status-index`, `date-bucket-index`.
+
+**Audit:** PK `accountId`, SK `timestamp`; GSI `date-bucket-index`.
+
+**Boundary sessions:** PK `sessionId`; GSIs `task-id-index`, `target-status-index`, `date-bucket-index` (`pkg/store/session.go`).
 
 ### `pkg/config` — Environment Configuration
 
 All configuration via environment variables (Terraform-managed):
 
-| Env Var | Default | Mode | Description |
-|---------|---------|------|-------------|
-| `HANDLER_MODE` | — | both | `api` or `worker` |
-| `EXECUTION_TABLE` | — | both | DynamoDB executions table |
-| `AUDIT_TABLE` | — | api | DynamoDB audit table |
-| `ARTIFACT_BUCKET` | — | both | S3 bucket for output/logs |
-| `TARGET_CLUSTER` | — | both | Target EKS cluster identifier |
-| `ZOA_DEPLOYMENT_TARGET` | — | both | ZOA deployment target: `rc` or `mc` (TA registry filter + validation) |
-| `EKS_CLUSTER_ENDPOINT` | — | both | EKS API server URL |
-| `EKS_CLUSTER_CA` | — | both | Base64-encoded CA certificate |
-| `EKS_CLUSTER_NAME` | — | both | Cluster name (for token generation) |
-| `JOB_IMAGE` | — | both | Container image for async K8s Jobs |
-| `UPLOADER_ROLE_ARN` | — | both | IAM role for S3 upload credentials |
-| `AWS_READ_ROLE_ARN` | — | both | IAM role for read AWS TAs |
-| `AWS_WRITE_ROLE_ARN` | — | both | IAM role for write AWS TAs |
-| `DATA_STORE_ROLE_ARN` | — | mc | Cross-account role for DynamoDB/S3 |
-| `EXECUTION_DEADLINE_SECONDS` | 295 | both | Code deadline for TA execution (sync only) |
-| `RECONCILER_DEADLINE_SECONDS` | 55 | worker | Code deadline for scheduled routes |
-| `MAX_BATCH_PER_TICK` | 30 | worker | Items per scheduled phase |
-| `WRITE_COOLDOWN_SECONDS` | 300 | api | Default write cooldown |
-| `MAX_CONCURRENT_PER_TARGET` | 10 | api | Max active executions per target |
-| `ZOA_JOBS_NAMESPACE` | `zoa-jobs` | both | K8s namespace for execution resources |
+| Env Var                        | Default    | Mode                | Description                                                                                                                                                                                |
+| ------------------------------ | ---------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HANDLER_MODE`                 | —          | all                 | `api`, `worker`, or `access`                                                                                                                                                               |
+| `EXECUTION_TABLE`              | —          | api, worker         | DynamoDB executions table                                                                                                                                                                  |
+| `AUDIT_TABLE`                  | —          | api, access         | DynamoDB audit table                                                                                                                                                                       |
+| `SESSIONS_TABLE`               | —          | api, worker, access | Boundary sessions table (bridge + reaper; access writes)                                                                                                                                   |
+| `TARGETS_SSM_PREFIX`           | —          | access              | SSM prefix for `/zoa/targets/...`                                                                                                                                                          |
+| `SESSION_IDLE_TIMEOUT_SECONDS` | 3600       | worker              | Boundary idle reaper window                                                                                                                                                                |
+| `SESSION_MAX_DURATION_HOURS`   | 4          | access              | Default session deadline at start                                                                                                                                                          |
+| `ARTIFACT_BUCKET`              | —          | both                | S3 bucket for output/logs                                                                                                                                                                  |
+| `TARGET_CLUSTER`               | —          | both                | Target EKS cluster identifier                                                                                                                                                              |
+| `ZOA_TARGET_TYPE`              | —          | api, worker         | Target type `rc` or `mc` (TA registry filter; Terraform `target_type` → this env on API/Worker Lambda). Boundary tasks get it from Access at `RunTask`. Access Lambda does not require it. |
+| `EKS_CLUSTER_ENDPOINT`         | —          | both                | EKS API server URL                                                                                                                                                                         |
+| `EKS_CLUSTER_CA`               | —          | both                | Base64-encoded CA certificate                                                                                                                                                              |
+| `EKS_CLUSTER_NAME`             | —          | both                | Cluster name (for token generation)                                                                                                                                                        |
+| `JOB_IMAGE`                    | —          | both                | Container image for async K8s Jobs                                                                                                                                                         |
+| `UPLOADER_ROLE_ARN`            | —          | both                | IAM role for S3 upload credentials                                                                                                                                                         |
+| `AWS_READ_ROLE_ARN`            | —          | both                | IAM role for read AWS TAs                                                                                                                                                                  |
+| `AWS_WRITE_ROLE_ARN`           | —          | both                | IAM role for write AWS TAs                                                                                                                                                                 |
+| `DATA_STORE_ROLE_ARN`          | —          | mc                  | Cross-account role for DynamoDB/S3                                                                                                                                                         |
+| `EXECUTION_DEADLINE_SECONDS`   | 295        | both                | Code deadline for TA execution (sync only)                                                                                                                                                 |
+| `RECONCILER_DEADLINE_SECONDS`  | 55         | worker              | Code deadline for scheduled routes                                                                                                                                                         |
+| `MAX_BATCH_PER_TICK`           | 30         | worker              | Items per scheduled phase                                                                                                                                                                  |
+| `WRITE_COOLDOWN_SECONDS`       | 300        | api                 | Default write cooldown                                                                                                                                                                     |
+| `MAX_CONCURRENT_PER_TARGET`    | 10         | api                 | Max active executions per target                                                                                                                                                           |
+| `ZOA_JOBS_NAMESPACE`           | `zoa-jobs` | both                | K8s namespace for execution resources                                                                                                                                                      |
 
 ## Safety Controls
 
-| Control | Mechanism |
-|---------|-----------|
-| Write cooldown | DynamoDB query for recent same-action executions on target |
-| Max concurrent | Count active (non-terminal) executions per target |
-| HCP namespace block | `get_secret` rejects `cluster-*` namespaces |
-| Owner reference check | `delete_pod` refuses standalone pods |
-| Timeout ceiling | Per-TA timeout bounded by `EXECUTION_DEADLINE_SECONDS` (sync) or `activeDeadlineSeconds` (async) |
-| Batch limit | Scheduled phases cap at `MAX_BATCH_PER_TICK` items |
+| Control               | Mechanism                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| Write cooldown        | DynamoDB query for recent same-action executions on target                                       |
+| Max concurrent        | Count active (non-terminal) executions per target                                                |
+| HCP namespace block   | `get_secret` rejects `cluster-*` namespaces                                                      |
+| Owner reference check | `delete_pod` refuses standalone pods                                                             |
+| Timeout ceiling       | Per-TA timeout bounded by `EXECUTION_DEADLINE_SECONDS` (sync) or `activeDeadlineSeconds` (async) |
+| Batch limit           | Scheduled phases cap at `MAX_BATCH_PER_TICK` items                                               |

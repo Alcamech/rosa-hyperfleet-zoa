@@ -32,10 +32,14 @@ func (r *rolloutRestart) Metadata() ActionMetadata {
 		ExecutionMode:        "sync",
 		Description:          "Restart a workload by patching the pod template annotation, equivalent to kubectl rollout restart. Supports deployments, daemonsets, and statefulsets.",
 		Authorization:        AuthorizationConfig{Approval: "none"},
-		DeploymentTargets:    []string{DeploymentTargetRC, DeploymentTargetMC},
+		TargetTypes:          []string{TargetTypeRC, TargetTypeMC},
 		TimeoutSeconds:       180,
 		WriteCooldownSeconds: 300,
 		DryRunAction:         "get_resource",
+		Examples: []string{
+			"zoa run rollout_restart --resource deployment -n openshift-ingress --name router-default --reason ROSAENG-1234",
+			"zoa run rollout_restart --resource deployment -n cert-manager --name cert-manager-webhook --reason ROSAENG-1234 --dry-run",
+		},
 		Parameters: []ParameterDef{
 			{Name: "resource", Required: true, Default: "deployment", Description: "Resource type (deployment, daemonset, statefulset)"},
 			{Name: "namespace", Required: true, Description: "Workload namespace"},

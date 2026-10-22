@@ -20,13 +20,19 @@ func init() {
 	Register(&getDBResource{})
 }
 
+const (
+	envSeaplaneDBEndpoint = "SEAPLANE_DB_ENDPOINT"
+	envSeaplaneDBName     = "SEAPLANE_DB_NAME"
+	envSeaplaneDBUsername = "SEAPLANE_DB_USERNAME"
+)
+
 // validateDBConnParams checks the prerequisites shared by all seaplane-db
 // actions: an AWS config (for the IAM auth token) and the DB connection env vars.
 func validateDBConnParams(params *ExecutionParams) error {
 	if params.AWSConfig == nil {
 		return fmt.Errorf("AWS configuration is required")
 	}
-	for _, envVar := range []string{"HYPERFLEET_DB_ENDPOINT", "HYPERFLEET_DB_NAME", "HYPERFLEET_DB_USERNAME"} {
+	for _, envVar := range []string{envSeaplaneDBEndpoint, envSeaplaneDBName, envSeaplaneDBUsername} {
 		if os.Getenv(envVar) == "" {
 			return fmt.Errorf("environment variable %s is not set", envVar)
 		}
@@ -45,10 +51,19 @@ func (a *getDBResource) Metadata() ActionMetadata {
 		Description:   "Get or list Seaplane control-plane resources directly from the seaplane-db (Aurora PostgreSQL) by GVK, namespace, and name.",
 		Authorization: AuthorizationConfig{Approval: "none"},
 		// RC only: seaplane-db lives in the regional cluster VPC.
-		DeploymentTargets: []string{DeploymentTargetRC},
-		TimeoutSeconds:    30,
+		TargetTypes:    []string{TargetTypeRC},
+		TimeoutSeconds: 30,
+		Examples: []string{
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/NodePool -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -n cluster-38ae9f84-aa1f-48bd-89e8-2d4611404fa1 --name jaime1",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/ManagementCluster --name mc-01",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A -v",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A -v -o json | jq '.output[].spec'",
+			"zoa run get_db_resource --reason ROSAENG-1234 --param gvk=hyperfleet.io/v1alpha1/Cluster -A -v | jq '.[].spec'",
+		},
 		Parameters: []ParameterDef{
-			{Name: "gvk", Required: true, Description: "Group/Version/Kind, e.g. seaplane.io/v1alpha1/Cluster (core group: /v1/ConfigMap). Run list_db_gvks to discover valid values."},
+			{Name: "gvk", Required: true, Description: "Group/Version/Kind, e.g. hyperfleet.io/v1alpha1/Cluster (core group: /v1/ConfigMap). Run list_db_gvks to discover valid values."},
 			{Name: "namespace", Description: "Target namespace (omit with all_namespaces, or for cluster-scoped resources)"},
 			{Name: "all_namespaces", Default: "false", Description: "List across all namespaces (ignores namespace)"},
 			{Name: "name", Description: "Get a specific resource by name"},
@@ -81,7 +96,7 @@ func (a *getDBResource) Execute(ctx context.Context, params *ExecutionParams) (*
 	allNamespaces := params.Params["all_namespaces"] == "true"
 	verbose := params.Params["verbose"] == "true"
 
-	conn, err := connectHyperfleetDB(ctx, params)
+	conn, err := connectSeaplaneDB(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +185,14 @@ func (a *getDBResource) Execute(ctx context.Context, params *ExecutionParams) (*
 	}, nil
 }
 
-// connectHyperfleetDB opens a pgx connection to seaplane-db using an RDS IAM
+// connectSeaplaneDB opens a pgx connection to seaplane-db using an RDS IAM
 // auth token as the password. The token is a presigned URL containing reserved
 // characters, so it is set on the config's Password field verbatim rather than
 // interpolated into the DSN (which would corrupt it).
-func connectHyperfleetDB(ctx context.Context, params *ExecutionParams) (*pgx.Conn, error) {
-	endpoint := os.Getenv("HYPERFLEET_DB_ENDPOINT")
-	dbName := os.Getenv("HYPERFLEET_DB_NAME")
-	username := os.Getenv("HYPERFLEET_DB_USERNAME")
+func connectSeaplaneDB(ctx context.Context, params *ExecutionParams) (*pgx.Conn, error) {
+	endpoint := os.Getenv(envSeaplaneDBEndpoint)
+	dbName := os.Getenv(envSeaplaneDBName)
+	username := os.Getenv(envSeaplaneDBUsername)
 	region := params.AWSConfig.Region
 
 	authToken, err := auth.BuildAuthToken(ctx, endpoint, region, username, params.AWSConfig.Credentials)
@@ -235,7 +250,7 @@ func buildListQuery(gvk, namespace, name string, allNamespaces bool) (string, []
 func validateGVK(gvk string) error {
 	parts := strings.Split(gvk, "/")
 	if len(parts) != 3 || parts[1] == "" || parts[2] == "" {
-		return fmt.Errorf("invalid gvk %q: expected Group/Version/Kind (e.g. seaplane.io/v1alpha1/Cluster or /v1/ConfigMap)", gvk)
+		return fmt.Errorf("invalid gvk %q: expected Group/Version/Kind (e.g. hyperfleet.io/v1alpha1/Cluster or /v1/ConfigMap)", gvk)
 	}
 	return nil
 }

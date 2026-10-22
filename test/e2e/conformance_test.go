@@ -13,7 +13,7 @@ import (
 
 // E2E conformance — every TA on each live Lambda must have ta_* e2e coverage.
 // Catalog may run ahead of the deployed image; ta_* specs skip missing actions.
-// RC and MC registries differ when a TA declares DeploymentTargets for only one endpoint.
+// RC and MC registries differ when a TA declares TargetTypes for only one endpoint.
 
 var _ = Describe("e2e conformance", func() {
 	taTestFileContents := func() map[string]string {
@@ -51,7 +51,7 @@ var _ = Describe("e2e conformance", func() {
 					}
 					Expect(found).To(BeTrue(),
 						"TA %q is registered on %s Lambda but has no ta_*_test.go e2e coverage — "+
-							"add a test file or add the TA name to an existing ta_* file", ta, tgt.DeploymentTarget)
+							"add a test file or add the TA name to an existing ta_* file", ta, tgt.TargetType)
 				}
 			})
 

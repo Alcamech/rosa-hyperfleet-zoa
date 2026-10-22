@@ -22,8 +22,8 @@ func TestGetDBResource_Metadata_ItShouldBeAReadOnlyAWSAction(t *testing.T) {
 	if meta.Type != "read" {
 		t.Errorf("expected type read, got %q", meta.Type)
 	}
-	if len(meta.DeploymentTargets) != 1 || meta.DeploymentTargets[0] != DeploymentTargetRC {
-		t.Errorf("expected deployment targets [%s], got %v", DeploymentTargetRC, meta.DeploymentTargets)
+	if len(meta.TargetTypes) != 1 || meta.TargetTypes[0] != TargetTypeRC {
+		t.Errorf("expected deployment targets [%s], got %v", TargetTypeRC, meta.TargetTypes)
 	}
 }
 
@@ -42,20 +42,20 @@ func TestGetDBResourceValidate_WhenAWSConfigMissing_ItShouldError(t *testing.T) 
 }
 
 func TestGetDBResourceValidate_WhenEnvVarMissing_ItShouldError(t *testing.T) {
-	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
-	os.Unsetenv("HYPERFLEET_DB_USERNAME")
+	t.Setenv("SEAPLANE_DB_ENDPOINT", "host:5432")
+	t.Setenv("SEAPLANE_DB_NAME", "seaplane")
+	os.Unsetenv("SEAPLANE_DB_USERNAME")
 
 	err := (&getDBResource{}).Validate(context.Background(), newDBParams("apps/v1/Deployment"))
 	if err == nil {
-		t.Fatal("expected error when HYPERFLEET_DB_USERNAME is unset")
+		t.Fatal("expected error when SEAPLANE_DB_USERNAME is unset")
 	}
 }
 
 func TestGetDBResourceValidate_WhenGVKMissing_ItShouldError(t *testing.T) {
-	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
-	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
+	t.Setenv("SEAPLANE_DB_ENDPOINT", "host:5432")
+	t.Setenv("SEAPLANE_DB_NAME", "seaplane")
+	t.Setenv("SEAPLANE_DB_USERNAME", "zoa_ro")
 
 	params := &ExecutionParams{AWSConfig: &aws.Config{Region: "us-east-1"}, Params: map[string]string{}}
 	if err := (&getDBResource{}).Validate(context.Background(), params); err == nil {
@@ -64,9 +64,9 @@ func TestGetDBResourceValidate_WhenGVKMissing_ItShouldError(t *testing.T) {
 }
 
 func TestGetDBResourceValidate_WhenGVKMalformed_ItShouldError(t *testing.T) {
-	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
-	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
+	t.Setenv("SEAPLANE_DB_ENDPOINT", "host:5432")
+	t.Setenv("SEAPLANE_DB_NAME", "seaplane")
+	t.Setenv("SEAPLANE_DB_USERNAME", "zoa_ro")
 
 	for _, bad := range []string{"Deployment", "apps/Deployment", "apps//Deployment", "apps/v1/"} {
 		if err := (&getDBResource{}).Validate(context.Background(), newDBParams(bad)); err == nil {
@@ -76,9 +76,9 @@ func TestGetDBResourceValidate_WhenGVKMalformed_ItShouldError(t *testing.T) {
 }
 
 func TestGetDBResourceValidate_WhenValid_ItShouldPass(t *testing.T) {
-	t.Setenv("HYPERFLEET_DB_ENDPOINT", "host:5432")
-	t.Setenv("HYPERFLEET_DB_NAME", "seaplane")
-	t.Setenv("HYPERFLEET_DB_USERNAME", "zoa_ro")
+	t.Setenv("SEAPLANE_DB_ENDPOINT", "host:5432")
+	t.Setenv("SEAPLANE_DB_NAME", "seaplane")
+	t.Setenv("SEAPLANE_DB_USERNAME", "zoa_ro")
 
 	for _, good := range []string{"apps/v1/Deployment", "hypershift.openshift.io/v1beta1/HostedCluster", "/v1/ConfigMap"} {
 		if err := (&getDBResource{}).Validate(context.Background(), newDBParams(good)); err != nil {

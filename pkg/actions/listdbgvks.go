@@ -28,9 +28,13 @@ func (a *listDBGVKs) Metadata() ActionMetadata {
 		Description:   "List the distinct resource types (GVKs) present in the seaplane-db, with object counts. Use to discover valid gvk values for get_db_resource.",
 		Authorization: AuthorizationConfig{Approval: "none"},
 		// RC only: seaplane-db lives in the regional cluster VPC.
-		DeploymentTargets: []string{DeploymentTargetRC},
-		TimeoutSeconds:    30,
-		Parameters:        []ParameterDef{},
+		TargetTypes:    []string{TargetTypeRC},
+		TimeoutSeconds: 30,
+		Examples: []string{
+			"zoa run list_db_gvks --reason ROSAENG-1234",
+			"zoa run list_db_gvks --reason ROSAENG-1234 -o json",
+		},
+		Parameters: []ParameterDef{},
 	}
 }
 
@@ -39,7 +43,7 @@ func (a *listDBGVKs) Validate(_ context.Context, params *ExecutionParams) error 
 }
 
 func (a *listDBGVKs) Execute(ctx context.Context, params *ExecutionParams) (*ActionResult, error) {
-	conn, err := connectHyperfleetDB(ctx, params)
+	conn, err := connectSeaplaneDB(ctx, params)
 	if err != nil {
 		return nil, err
 	}
