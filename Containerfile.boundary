@@ -8,10 +8,10 @@
 # are checksum-verified.
 
 # Pinned linux/amd64 from ubi-minimal:9.8-1790555810. Mintmaker/Renovate updates digest.
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:bc2502169d857732c4ba778f69ed4fa2d25c9ef054a9f7839ac8ce65aedd6574
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:c2fcb1793e00a434470271be7f46eadc2462b39f8370e6a81c861c72fb8d38db
 
 # Pinned linux/amd64 from go-toolset:1.26.7-1790174511. Mintmaker/Renovate updates digest.
-ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:0f2be9ed624fabfe8625ffa510d2b243766249006518e551ef9e0b486f195e90
+ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:d9bc5d341698d9f807a9ff45d68b6187086bf37135d19a0c3b7a2c4e99891e76
 
 # --------------------------------------------------------------------------
 # builder — Go build (zoa CLI)
@@ -49,7 +49,7 @@ FROM ${BASE_IMAGE} AS tools
 
 ARG TARGETARCH=amd64
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION="v1.32.0"
+ARG KUBECTL_VERSION="v1.37.1"
 
 # ubi-minimal includes curl-minimal; do not install full curl (package conflict).
 WORKDIR /tools
@@ -103,7 +103,7 @@ FROM ${BASE_IMAGE} AS claude-builder
 
 ARG TARGETARCH=amd64
 # renovate: datasource=github-releases depName=anthropics/claude-code
-ARG CLAUDE_CODE_VERSION="2.1.199"
+ARG CLAUDE_CODE_VERSION="2.1.303"
 ENV CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}"
 
 RUN microdnf install --assumeyes --nodocs tar gzip && microdnf clean all
