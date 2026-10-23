@@ -21,7 +21,6 @@ func Resolve(flagValue string) (string, error) {
 	if v := normalize(flagValue); v != "" {
 		return v, nil
 	}
-	// Legacy ZOA_DEPLOYMENT_TARGET fallback via config.TargetTypeFromEnv (ROSAENG-68805).
 	if v := config.TargetTypeFromEnv(); v != "" {
 		return v, nil
 	}

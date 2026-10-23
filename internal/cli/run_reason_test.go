@@ -66,20 +66,6 @@ func TestRunAction_WhenZOAReasonAndFlagSet_ItShouldPreferFlagReason(t *testing.T
 	}
 }
 
-func TestRunCommand_WhenJiraFlagSet_ItShouldBindReasonField(t *testing.T) {
-	cmd := newRunCommand(newMockGlobalOpts(&mockClient{}))
-	if err := cmd.ParseFlags([]string{"--jira", "ROSAENG-1234"}); err != nil {
-		t.Fatalf("ParseFlags: %v", err)
-	}
-	got, err := cmd.Flags().GetString("reason")
-	if err != nil {
-		t.Fatalf("GetString(reason): %v", err)
-	}
-	if got != "ROSAENG-1234" {
-		t.Fatalf("expected --jira to set reason, got %q", got)
-	}
-}
-
 func TestRunAction_WhenNoReasonFlagOrEnv_ItShouldFailBeforeDispatch(t *testing.T) {
 	t.Setenv(reason.EnvVar, "")
 

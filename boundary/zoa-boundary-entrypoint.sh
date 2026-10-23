@@ -33,11 +33,6 @@ zoa_target_type() {
     echo "${ZOA_TARGET_TYPE}"
     return 0
   fi
-  # ROSAENG-68805: legacy seaplane TF env; remove with targettype_compat.go
-  if [[ -n "${ZOA_DEPLOYMENT_TARGET:-}" ]]; then
-    echo "${ZOA_DEPLOYMENT_TARGET}"
-    return 0
-  fi
   echo "mc"
 }
 

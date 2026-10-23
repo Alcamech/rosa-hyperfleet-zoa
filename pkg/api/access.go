@@ -136,7 +136,6 @@ type sessionStartRequest struct {
 	DeploymentName string `json:"deployment_name"`
 	Target         string `json:"target"`
 	Reason         string `json:"reason"`
-	Jira           string `json:"jira"` // deprecated alias; see coalesceReason (ROSAENG-68805)
 	TimeoutHours   int    `json:"timeout_hours,omitempty"`
 }
 
@@ -187,11 +186,10 @@ func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	reasonRaw := coalesceReason(req.Reason, req.Jira)
-	reasonValue, err := reason.Require(reasonRaw)
+	reasonValue, err := reason.Require(req.Reason)
 	if err != nil {
 		code := "missing_reason"
-		if strings.TrimSpace(reasonRaw) != "" {
+		if strings.TrimSpace(req.Reason) != "" {
 			code = "invalid_reason"
 		}
 		writeError(w, http.StatusBadRequest, code, err.Error())

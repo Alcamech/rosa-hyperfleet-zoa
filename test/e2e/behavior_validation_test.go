@@ -51,9 +51,7 @@ var _ = Describe("parameter validation", func() {
 				"--resource", "nodes",
 				"--reason", "invalid-format")
 			Expect(err).To(HaveOccurred())
-			// Old API (main CLI + jira field): "PROJECT-123". New API (reason field): FormatHint.
 			Expect(out).To(SatisfyAny(
-				ContainSubstring("PROJECT-123"),
 				ContainSubstring("ROSAENG-1234"),
 				ContainSubstring("not valid"),
 			))

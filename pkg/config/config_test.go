@@ -254,27 +254,10 @@ func TestLoad_WhenWorkerMissingJobImage_ItShouldReturnError(t *testing.T) {
 func TestLoad_WhenMissingTargetType_ItShouldReturnError(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("ZOA_TARGET_TYPE", "")
-	t.Setenv(legacyTargetTypeEnv, "")
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error when target type env vars are empty")
-	}
-}
-
-// Pre-boundary seaplane main still sets ZOA_DEPLOYMENT_TARGET on Lambdas (ROSAENG-68805).
-func TestLoad_WhenOnlyLegacyDeploymentTargetSet_ItShouldSucceed(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("HANDLER_MODE", "api")
-	t.Setenv("ZOA_TARGET_TYPE", "")
-	t.Setenv(legacyTargetTypeEnv, "mc")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.TargetType != "mc" {
-		t.Fatalf("expected TargetType mc from legacy env, got %q", cfg.TargetType)
+		t.Fatal("expected error when ZOA_TARGET_TYPE is empty")
 	}
 }
 

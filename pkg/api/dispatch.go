@@ -20,7 +20,6 @@ import (
 
 type createRequest struct {
 	Reason         string            `json:"reason"`
-	Jira           string            `json:"jira"` // deprecated alias; see coalesceReason (ROSAENG-68805)
 	Params         map[string]string `json:"params,omitempty"`
 	Force          bool              `json:"force"`
 	DryRun         bool              `json:"dry_run"`
@@ -71,22 +70,15 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		return
 	}
 
-	reasonRaw := coalesceReason(req.Reason, req.Jira)
-	reasonValue, err := reason.Require(reasonRaw)
+	reasonValue, err := reason.Require(req.Reason)
 	if err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(reasonRaw), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		code := "missing_reason"
-		msg := err.Error()
-		if strings.TrimSpace(reasonRaw) != "" {
+		if strings.TrimSpace(req.Reason) != "" {
 			code = "invalid_reason"
-			// Legacy main-branch CLI sends {"jira":...} only; e2e still expects PROJECT-123 (ROSAENG-68805).
-			if strings.TrimSpace(req.Reason) == "" && strings.TrimSpace(req.Jira) != "" {
-				code = "invalid_jira"
-				msg = fmt.Sprintf("jira ticket %q must match format PROJECT-123", req.Jira)
-			}
 		}
-		writeError(w, http.StatusBadRequest, code, msg)
+		writeError(w, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	req.Reason = reasonValue

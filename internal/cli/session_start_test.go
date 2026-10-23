@@ -25,29 +25,6 @@ func TestSessionStart_WhenReasonMissing_ItShouldNotCallAPI(t *testing.T) {
 	}
 }
 
-func TestSessionStart_WhenJiraFlagSet_ItShouldPassToAPIAsReason(t *testing.T) {
-	var gotReason string
-	mock := &mockClient{
-		sessionStartFn: func(_ context.Context, req *client.SessionStartRequest) (*client.SessionStartResponse, error) {
-			gotReason = req.Reason
-			return &client.SessionStartResponse{
-				SessionID: "sess-jira",
-				Status:    "active",
-				Target:    "mc01",
-			}, nil
-		},
-	}
-	root := sessionTestRoot(newMockGlobalOpts(mock))
-	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--jira", "ROSAENG-4242", "--no-connect"})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if gotReason != "ROSAENG-4242" {
-		t.Fatalf("expected --jira alias on request, got %q", gotReason)
-	}
-}
-
 func TestSessionStart_WhenReasonSet_ItShouldPassToAPI(t *testing.T) {
 	var gotReason string
 	mock := &mockClient{
