@@ -32,7 +32,7 @@ type target struct {
 }
 
 var (
-	reasonValue = envOrDefault("E2E_REASON", envOrDefault("E2E_JIRA_TICKET", "ZOAE2E-1"))
+	reasonValue = envOrDefault("E2E_REASON", "ZOAE2E-1")
 	zoaBin      = envOrDefault("ZOA_BIN", "zoa")
 
 	// coredns is the standard EKS system Deployment used for delete_pod and

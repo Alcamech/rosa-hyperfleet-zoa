@@ -172,8 +172,6 @@ on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.`,
 	cmd.Flags().StringVarP(&flagDeployment, "deployment", "d", "", "Deployment name (e.g. us-east-1)")
 	cmd.Flags().StringVarP(&flagTarget, "target", "t", "", "Target ID (e.g. mc01)")
 	cmd.Flags().StringVar(&flagReason, "reason", "", "Reason for this session (required: Jira issue or PagerDuty incident, e.g. ROSAENG-1234 or #123456)")
-	// TODO(ROSAENG-68805): remove --jira after seaplane/zoa e2e use --reason only.
-	cmd.Flags().StringVar(&flagReason, "jira", "", "Deprecated alias for --reason")
 	cmd.Flags().BoolVar(&flagNoConnect, "no-connect", false, "Print session metadata only; do not open ECS Exec (same idea as zoa run --no-wait)")
 
 	return cmd

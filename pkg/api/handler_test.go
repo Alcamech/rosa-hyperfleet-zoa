@@ -394,22 +394,6 @@ func TestHandleCreate_WhenMaxConcurrentExceeded_ItShouldReturn429(t *testing.T) 
 	}
 }
 
-func TestHandleCreate_WhenLegacyJiraFieldOnly_ItShouldNotRejectMissingReason(t *testing.T) {
-	h := testHandler(&mockExecStore{})
-	body := createRequest{
-		Jira:   "ROSAENG-1234",
-		Params: map[string]string{"namespace": "default"},
-	}
-	rr := doRequest(h, "POST", "/api/v0/trusted-actions/test-read/run", body, defaultHeaders())
-	if rr.Code == http.StatusBadRequest {
-		var resp map[string]string
-		_ = json.NewDecoder(rr.Body).Decode(&resp)
-		if resp["code"] == "missing_reason" {
-			t.Fatalf("legacy jira JSON field should satisfy reason requirement: %s", rr.Body.String())
-		}
-	}
-}
-
 func TestHandleCreate_WhenCooldownRejected_ItShouldRecordAuditWith429(t *testing.T) {
 	// Cooldown is per (target, action, params) — mock must have matching params
 	execStore := &mockExecStore{

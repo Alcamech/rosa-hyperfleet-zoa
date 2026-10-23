@@ -28,23 +28,9 @@ func TestResolve_WhenOnlyEnvVarSet_ItShouldUseEnvVar(t *testing.T) {
 
 func TestResolve_WhenUnset_ItShouldReturnError(t *testing.T) {
 	t.Setenv(EnvVar, "")
-	t.Setenv("ZOA_DEPLOYMENT_TARGET", "")
 	_, err := Resolve("")
 	if err == nil {
 		t.Fatal("expected error")
-	}
-}
-
-// ROSAENG-68805: pre-boundary seaplane Terraform env name.
-func TestResolve_WhenOnlyLegacyDeploymentTargetSet_ItShouldUseLegacy(t *testing.T) {
-	t.Setenv(EnvVar, "")
-	t.Setenv("ZOA_DEPLOYMENT_TARGET", "rc")
-	got, err := Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != RC {
-		t.Fatalf("got %q, want rc", got)
 	}
 }
 

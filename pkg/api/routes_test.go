@@ -477,16 +477,6 @@ func TestHandleAudit_WhenCalled_ItShouldRecordAudit(t *testing.T) {
 	}
 }
 
-func TestHandleAudit_WhenLegacyTrustedActionsAuditPath_ItShouldReturnAuditList(t *testing.T) {
-	h := testHandlerWithAudit(&mockExecStore{}, &mockAuditStoreWithData{})
-
-	rr := doRequest(h, "GET", PathLegacyAudit, nil, defaultHeaders())
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for legacy audit path, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
 // --- parseTimeValue ---
 
 func TestParseTimeValue_WhenValidDurations_ItShouldReturnCorrectTime(t *testing.T) {
