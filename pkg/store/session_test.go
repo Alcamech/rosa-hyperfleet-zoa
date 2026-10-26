@@ -277,6 +277,30 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenSessionsExist_ItShoul
 			if params.IndexName == nil || *params.IndexName != "target-status-index" {
 				t.Errorf("expected target-status-index GSI, got %v", params.IndexName)
 			}
+			if params.FilterExpression != nil {
+				t.Errorf("targetStatusKey is a key attribute and cannot be filtered, got %q", *params.FilterExpression)
+			}
+			if params.KeyConditionExpression == nil || !strings.Contains(*params.KeyConditionExpression, "BETWEEN") {
+				t.Errorf("expected BETWEEN on the sort key, got %v", params.KeyConditionExpression)
+			}
+			var sawCluster, sawActiveLower, sawCeiling bool
+			for _, v := range params.ExpressionAttributeValues {
+				s, ok := v.(*types.AttributeValueMemberS)
+				if !ok {
+					continue
+				}
+				switch {
+				case s.Value == "mc01":
+					sawCluster = true
+				case s.Value == activeStatusKeyCeiling:
+					sawCeiling = true
+				case strings.HasPrefix(s.Value, "active#") && strings.HasSuffix(s.Value, "\uffff"):
+					sawActiveLower = true
+				}
+			}
+			if !sawCluster || !sawActiveLower || !sawCeiling {
+				t.Errorf("key condition values = %#v", params.ExpressionAttributeValues)
+			}
 			return &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{item}}, nil
 		},
 	}
