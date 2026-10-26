@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/actions"
@@ -73,6 +76,57 @@ func TestCreateResponse_WhenSerialized_ItShouldIncludeAllCLIExpectedFields(t *te
 	}
 	if result["type"] != "read" {
 		t.Errorf("expected type=%q, got %v", "read", result["type"])
+	}
+}
+
+// TestHandleCreate_WhenBodyExceedsLimitWithContentLength_ItShouldReturn413 verifies
+// that the Content-Length precheck fires before any bytes are read.
+func TestHandleCreate_WhenBodyExceedsLimitWithContentLength_ItShouldReturn413(t *testing.T) {
+	h := testHandler(&mockExecStore{})
+
+	oversized := bytes.Repeat([]byte("x"), (64<<10)+1)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/trusted-actions/test-read/run", bytes.NewReader(oversized))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Account-ID", "account-123")
+	req.Header.Set("X-Operator", "sre@redhat.com")
+	// httptest.NewRequest sets ContentLength automatically from the reader length.
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+	if resp["code"] != "request_too_large" {
+		t.Errorf("expected request_too_large code, got %q", resp["code"])
+	}
+}
+
+// TestHandleCreate_WhenBodyExceedsLimitWithoutContentLength_ItShouldReturn400 verifies
+// that MaxBytesReader catches oversized bodies when no Content-Length is declared.
+// The handler returns 400 (invalid_body) because MaxBytesReader causes json.Decode to fail.
+func TestHandleCreate_WhenBodyExceedsLimitWithoutContentLength_ItShouldReturn400(t *testing.T) {
+	h := testHandler(&mockExecStore{})
+
+	oversized := bytes.Repeat([]byte("x"), (64<<10)+1)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/trusted-actions/test-read/run", bytes.NewReader(oversized))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Account-ID", "account-123")
+	req.Header.Set("X-Operator", "sre@redhat.com")
+	req.ContentLength = -1 // suppress the precheck; MaxBytesReader enforces the limit on read
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 (MaxBytesReader read-time limit), got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+	if resp["code"] != "invalid_body" {
+		t.Errorf("expected invalid_body code, got %q", resp["code"])
 	}
 }
 
