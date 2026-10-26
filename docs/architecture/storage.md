@@ -6,10 +6,10 @@ Terraform source: `rosa-seaplane/terraform/modules/zoa/` (`dynamodb.tf`, `s3.tf`
 
 ## DynamoDB tables
 
-| Table                 | Primary key                    | Purpose                                                                     |
-| --------------------- | ------------------------------ | --------------------------------------------------------------------------- |
-| **Executions**        | PK `executionId`               | TA run lifecycle, cooldown/concurrency queries                              |
-| **Audit**             | PK `accountId`, SK `timestamp` | API call audit trail                                                        |
+| Table                 | Primary key                    | Purpose                                                              |
+| --------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| **Executions**        | PK `executionId`               | TA run lifecycle, cooldown/concurrency queries                       |
+| **Audit**             | PK `accountId`, SK `timestamp` | API call audit trail                                                 |
 | **Boundary sessions** | PK `sessionId` (UUID)          | Session lifecycle, [identity bridge](../boundary/identity-bridge.md) |
 
 TTL attribute: **`ttl`** (Unix epoch), set on write from **`DYNAMODB_TTL_DAYS`** (default **365** days) for executions, audit, and sessions.
@@ -31,28 +31,28 @@ TTL attribute: **`ttl`** (Unix epoch), set on write from **`DYNAMODB_TTL_DAYS`**
 
 **Access** writes rows at `session_start`; **`task_id`** is added when the ECS task is active. **`sessionId`** (PK) is the stable audit handle; **`taskId`** is the identity-bridge lookup key (same value as the STS session name on the task role ARN).
 
-| Attribute (Dynamo) | JSON               | Purpose                                                   |
-| ------------------ | ------------------ | --------------------------------------------------------- |
-| `sessionId`        | `session_id`       | UUID at start                                             |
-| `operator`         | `operator`         | Human SRE at start                                        |
-| `signerARN`        | `signer_arn`       | Invoker ARN at start                                      |
-| `accountId`        | `account_id`       | Caller account at start                                   |
-| `taskId`           | `task_id`          | ECS task UUID — GSI **`task-id-index`**                   |
-| `taskArn`          | `task_arn`         | Full ARN for ECS stop/exec                                |
-| `deadline`         | `deadline`         | Max session end (RFC3339)                                 |
-| `targetCluster`    | `target_cluster`   | MC/RC target name — GSI **`target-status-index`** PK      |
-| `targetStatusKey`  | —                  | GSI sort key; while **active**, `active#<deadline>` (RFC3339Nano) — see note below |
-| `stopReason`       | `stop_reason`      | `operatorStop`, `deadlineReaperStop`, `idleReaperStop`, … |
-| `execSessionIds`   | `exec_session_ids` | ECS Exec SSM ids → CloudWatch `ecs-execute-command-<id>` (not ZOA `session_id`) |
-| `dateBucket`       | —                  | `YYYY-MM-DD` for list/history                             |
+| Attribute (Dynamo) | JSON               | Purpose                                                                              |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------ |
+| `sessionId`        | `session_id`       | UUID at start                                                                        |
+| `operator`         | `operator`         | Human SRE at start                                                                   |
+| `signerARN`        | `signer_arn`       | Invoker ARN at start                                                                 |
+| `accountId`        | `account_id`       | Caller account at start                                                              |
+| `taskId`           | `task_id`          | ECS task UUID — GSI **`task-id-index`**                                              |
+| `taskArn`          | `task_arn`         | Full ARN for ECS stop/exec                                                           |
+| `deadline`         | `deadline`         | Max session end (RFC3339)                                                            |
+| `targetCluster`    | `target_cluster`   | MC/RC target name — GSI **`target-status-index`** PK                                 |
+| `targetStatusKey`  | —                  | GSI sort key; while **active**, `active#<deadline>` (RFC3339Nano) — see note below   |
+| `stopReason`       | `stop_reason`      | `operatorStop`, `deadlineReaperStop`, `staleCreatingReaperStop`, `idleReaperStop`, … |
+| `execSessionIds`   | `exec_session_ids` | ECS Exec SSM ids → CloudWatch `ecs-execute-command-<id>` (not ZOA `session_id`)      |
+| `dateBucket`       | —                  | `YYYY-MM-DD` for list/history                                                        |
 
 #### Boundary sessions — GSIs
 
-| GSI                     | Keys                            | Used by                                        |
-| ----------------------- | ------------------------------- | ---------------------------------------------- |
-| `task-id-index`         | PK `taskId`                     | API **`GetByTaskID`** (identity bridge)        |
-| `target-status-index`   | PK `targetCluster`, SK `targetStatusKey` | Worker **reaper** per `TARGET_CLUSTER` (deadline + idle candidates) |
-| `date-bucket-index`     | PK `dateBucket`, SK `createdAt` | `zoa session list` / `session history`         |
+| GSI                   | Keys                                     | Used by                                                                                      |
+| --------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `task-id-index`       | PK `taskId`                              | API **`GetByTaskID`** (identity bridge)                                                      |
+| `target-status-index` | PK `targetCluster`, SK `targetStatusKey` | Worker **reaper** per `TARGET_CLUSTER` (expired deadline, stale `creating`, idle candidates) |
+| `date-bucket-index`   | PK `dateBucket`, SK `createdAt`          | `zoa session list` / `session history`                                                       |
 
 **Same GSI name, different suffix rules:** on **executions**, `targetStatusKey` is `{status}#{createdAt}`; on **sessions**, active rows use `{status}#{deadline}` so the reaper can query by deadline within a `targetCluster` partition. Reaper queries: [session reaper](../boundary/session-reaper.md).
 

@@ -122,7 +122,7 @@ Do **not** use `ZOA_API_URL` for session discovery—that is the **API** plane i
 
 **Not env-backed (flags only):** TA **parameters** on `zoa run` (`-n`, `-A`, `--resource`, `--param`, …) — there is no `ZOA_NAMESPACE`-style env; use flags or `--param`.
 
-**Boundary-only context (set by Access on the ECS task, not run flags):** `ZOA_TARGET`, `ZOA_DEPLOYMENT`, `ZOA_SESSION_ID`, `ZOA_OPERATOR`, session deadline/idle vars. These label the session in the shell and in `~/.claude/ZOA_SESSION.md`; they do **not** replace `zoa run` parameter flags. **Which cluster a TA hits** is always the API behind **`ZOA_API_URL`** (one Lambda per target VPC).
+**Boundary-only context (set by Access on the ECS task, not run flags):** `ZOA_TARGET`, `ZOA_DEPLOYMENT`, `ZOA_SESSION_ID`, `ZOA_OPERATOR`, `ZOA_SESSION_DEADLINE`, `ZOA_SESSION_IDLE_TIMEOUT_SECONDS`, etc. These label the session in the shell and in `~/.claude/ZOA_SESSION.md`; they do **not** replace `zoa run` parameter flags. Worker **`SESSION_*`** reaper tuning is not set on the boundary task — see [session reaper](boundary/session-reaper.md). **Which cluster a TA hits** is always the API behind **`ZOA_API_URL`** (one Lambda per target VPC).
 
 **Reason resolution** (same for `zoa run` and `zoa session start`): `--reason` → `ZOA_REASON` → error if still empty. On the boundary, `ZOA_REASON` is usually set from the session ticket at task start; use `zoa run … --reason TICKET` only for a one-off override.
 
@@ -457,7 +457,7 @@ Parameters that have **no** dedicated flag (for example `gvk` on `get_db_resourc
 | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `hcp`      | One hosted ROSA cluster: hypershift dump + HCP/control-plane namespace diagnostics (MC ZOA only; requires `--cluster-id`) |
 | `mc`       | Management cluster platform: platform namespaces (e.g. kube-applier, hypershift), nodes, storage, Karpenter CRs           |
-| `rc`       | Regional cluster platform: platform namespaces (e.g. platform-api), Seaplane CRs, nodes, storage, Karpenter CRs         |
+| `rc`       | Regional cluster platform: platform namespaces (e.g. platform-api), Seaplane CRs, nodes, storage, Karpenter CRs           |
 
 Read-only. Produces `output.tar.gz` (`zoa download`). Mode is async (see MODE column); use `--wait` to block.
 

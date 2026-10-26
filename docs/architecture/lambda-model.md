@@ -16,13 +16,13 @@ API, Worker, and Access use the **same container image** (`zoa-lambda`), differe
 
 Each Lambda has different operational characteristics that are per-function AWS settings:
 
-| Setting           | API                      | Worker                          | Access                          |
-| ----------------- | ------------------------ | ------------------------------- | ------------------------------- |
-| Invocation        | Function URL (streaming) | EventBridge + self-invoke       | Function URL (standard)         |
-| VPC               | Yes (EKS access)         | Yes (EKS access)                | No (ECS RunTask, DynamoDB only) |
-| Lambda timeout    | 300s (default)           | 300s (default)                  | **30s** (session APIs only)     |
-| Reserved concurrency | `lambda_api_concurrency` | `lambda_worker_concurrency` | `lambda_access_concurrency`     |
-| Throttle behavior | HTTP 429 to caller       | AWS queues + retries (up to 6h) | HTTP 429 to caller              |
+| Setting              | API                      | Worker                          | Access                          |
+| -------------------- | ------------------------ | ------------------------------- | ------------------------------- |
+| Invocation           | Function URL (streaming) | EventBridge + self-invoke       | Function URL (standard)         |
+| VPC                  | Yes (EKS access)         | Yes (EKS access)                | No (ECS RunTask, DynamoDB only) |
+| Lambda timeout       | 300s (default)           | 300s (default)                  | **30s** (session APIs only)     |
+| Reserved concurrency | `lambda_api_concurrency` | `lambda_worker_concurrency`     | `lambda_access_concurrency`     |
+| Throttle behavior    | HTTP 429 to caller       | AWS queues + retries (up to 6h) | HTTP 429 to caller              |
 
 These cannot share a single function because timeout, concurrency, invocation mode (streaming vs standard handler), and VPC attachment are per-function settings.
 
@@ -39,7 +39,7 @@ The Worker Lambda uses the `route` field in the event payload:
 {"route": "execute", "execution_id": "abc123"}
 ```
 
-The **reaper** route enforces boundary **deadline** and **idle** policies: queries **`target-status-index`** on the sessions table for `TARGET_CLUSTER`, correlates ECS Exec activity via SSM/CloudWatch, and calls `ecs:StopTask` when needed (`pkg/scheduler/reaper.go`, scheduled from `terraform/modules/zoa-lambda/main.tf`). See [session reaper](../boundary/session-reaper.md).
+The **reaper** route enforces boundary **deadline**, **stale creating**, and **idle** policies: queries **`target-status-index`** on the sessions table for `TARGET_CLUSTER`, correlates ECS Exec activity via SSM/CloudWatch for idle, and calls `ecs:StopTask` when needed (`pkg/scheduler/reaper.go`, scheduled from `terraform/modules/zoa-lambda/main.tf`). See [session reaper](../boundary/session-reaper.md).
 
 ## Self-Invocation Pattern
 
@@ -67,7 +67,7 @@ Each Lambda has its own `reserved_concurrent_executions` pool (`lambda_api_concu
 
 Reserved concurrency guarantees slots are not stolen by other functions in the account and caps fan-out cost. Ephemeral environments typically use **-1** (unreserved) for all three. See `terraform/modules/zoa-lambda/variables.tf` and `terraform/modules/zoa-access/`.
 
-Session **deadline/idle** policy is not Lambda-timeout-driven — see [Timeout tuning — boundary sessions](timeout-tuning.md#access-lambda-and-boundary-sessions).
+Session **deadline / stale creating / idle** policy is not Lambda-timeout-driven — see [Timeout tuning — boundary sessions](timeout-tuning.md#access-lambda-and-boundary-sessions).
 
 ## Code-Level Deadlines
 
