@@ -109,6 +109,11 @@ type DynamoDBSessionStore struct {
 	ttlDays   int
 }
 
+// activeStatusKeyCeiling is the first target-status-index sort key that does not
+// belong to an active session. The active prefix is "active#", and '$' is the
+// next code point after '#'.
+const activeStatusKeyCeiling = "active$"
+
 // SessionTargetStatusKey builds the target-status-index sort key for a session row.
 func SessionTargetStatusKey(status SessionStatus, suffix string) string {
 	return string(status) + "#" + suffix
@@ -431,21 +436,27 @@ func (s *DynamoDBSessionStore) ListExpired(ctx context.Context, targetCluster st
 }
 
 // ListActiveBeforeDeadline queries target-status-index for active sessions not yet past deadline.
+// targetStatusKey is the sort key, so the deadline bound has to be part of the key
+// condition. DynamoDB rejects that attribute in FilterExpression.
 func (s *DynamoDBSessionStore) ListActiveBeforeDeadline(ctx context.Context, targetCluster string) ([]*Session, error) {
 	if targetCluster == "" {
 		return nil, fmt.Errorf("targetCluster is required for ListActiveBeforeDeadline")
 	}
 	now := time.Now().Format(time.RFC3339Nano)
-	activePrefix := SessionTargetStatusKey(SessionStatusActive, "")
-	lower := SessionTargetStatusKey(SessionStatusActive, now)
+	// Strictly after active#<now>, so a deadline equal to now stays on the expired side
+	// of the range (ListExpired includes that key). Real deadline keys are not
+	// extensions of the current timestamp, so this still sits below the next later key.
+	lower := SessionTargetStatusKey(SessionStatusActive, now) + "\uffff"
 
 	keyCond := expression.KeyAnd(
 		expression.Key("targetCluster").Equal(expression.Value(targetCluster)),
-		expression.Key("targetStatusKey").BeginsWith(activePrefix),
+		expression.Key("targetStatusKey").Between(
+			expression.Value(lower),
+			expression.Value(activeStatusKeyCeiling),
+		),
 	)
-	filter := expression.Name("targetStatusKey").GreaterThan(expression.Value(lower))
 
-	expr, err := expression.NewBuilder().WithKeyCondition(keyCond).WithFilter(filter).Build()
+	expr, err := expression.NewBuilder().WithKeyCondition(keyCond).Build()
 	if err != nil {
 		return nil, fmt.Errorf("building active sessions expression: %w", err)
 	}
@@ -457,7 +468,6 @@ func (s *DynamoDBSessionStore) ListActiveBeforeDeadline(ctx context.Context, tar
 			TableName:                 &s.tableName,
 			IndexName:                 aws.String("target-status-index"),
 			KeyConditionExpression:    expr.KeyCondition(),
-			FilterExpression:          expr.Filter(),
 			ExpressionAttributeNames:  expr.Names(),
 			ExpressionAttributeValues: expr.Values(),
 			ExclusiveStartKey:         lastKey,
