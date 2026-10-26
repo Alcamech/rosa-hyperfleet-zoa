@@ -2,7 +2,7 @@
 
 This document explains **Trusted Action** timeout architecture on API/Worker Lambdas: how values relate and how to adjust them safely.
 
-**Boundary sessions and Access** use different ceilings (30s Access Lambda, session deadline/idle on ECS). See [Access Lambda and boundary sessions](#access-lambda-and-boundary-sessions) below — operational detail lives in [session reaper](../boundary/session-reaper.md) and [operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership).
+**Boundary sessions and Access** use different ceilings (30s Access Lambda, session deadline / stale creating / idle on ECS). See [Access Lambda and boundary sessions](#access-lambda-and-boundary-sessions) below — operational detail lives in [session reaper](../boundary/session-reaper.md) and [operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership).
 
 ## Three Layers of Timeouts (TA execution)
 
@@ -25,14 +25,14 @@ This document explains **Trusted Action** timeout architecture on API/Worker Lam
 
 ## Current Defaults
 
-| Parameter                     | Default | Where              | What it controls                |
-| ----------------------------- | ------- | ------------------ | ------------------------------- |
-| `lambda_api_timeout`          | 300s    | Terraform variable | API Lambda hard ceiling         |
-| `lambda_worker_timeout`       | 300s    | Terraform variable | Worker Lambda hard ceiling      |
-| `EXECUTION_DEADLINE_SECONDS`  | 295s    | Lambda env var     | Code deadline for TA execution  |
+| Parameter                     | Default | Where              | What it controls                                       |
+| ----------------------------- | ------- | ------------------ | ------------------------------------------------------ |
+| `lambda_api_timeout`          | 300s    | Terraform variable | API Lambda hard ceiling                                |
+| `lambda_worker_timeout`       | 300s    | Terraform variable | Worker Lambda hard ceiling                             |
+| `EXECUTION_DEADLINE_SECONDS`  | 295s    | Lambda env var     | Code deadline for TA execution                         |
 | `RECONCILER_DEADLINE_SECONDS` | 55s     | Lambda env var     | Code deadline for reconciler, GC, and **reaper** ticks |
-| `MAX_BATCH_PER_TICK`          | 30      | Lambda env var     | Items per scheduled phase       |
-| Per-TA `TimeoutSeconds`       | 120s    | Go code            | Individual TA max runtime       |
+| `MAX_BATCH_PER_TICK`          | 30      | Lambda env var     | Items per scheduled phase                              |
+| Per-TA `TimeoutSeconds`       | 120s    | Go code            | Individual TA max runtime                              |
 
 ## Constraint Rules
 
@@ -93,7 +93,7 @@ If the TA exceeds its per-TA timeout or the code deadline fires, the TA is inter
 EventBridge trigger → RECONCILER_DEADLINE_SECONDS context → Run phase → Emit metrics → Return
 ```
 
-Each scheduled route (reconciler, GC, **reaper**) shares this deadline. Phases that batch work check `ctx.Err()` between items; remaining work is deferred to the next EventBridge tick. Reaper behavior (deadline vs idle) is documented in [session reaper](../boundary/session-reaper.md).
+Each scheduled route (reconciler, GC, **reaper**) shares this deadline. Phases that batch work check `ctx.Err()` between items; remaining work is deferred to the next EventBridge tick. Reaper behavior (deadline, stale creating, idle) is documented in [session reaper](../boundary/session-reaper.md).
 
 ### Worker Lambda (self-invoked TA execution)
 
@@ -107,20 +107,21 @@ Per-TA timeout is enforced by the executor. If the code deadline fires before TA
 
 These limits are **orthogonal** to TA timeouts above. Long-running work runs in the **ECS boundary task**, not inside Access or API Lambda invocations.
 
-| Parameter | Default | Where | What it controls |
-| --------- | ------- | ----- | ---------------- |
-| Access Lambda timeout | **30s** | `terraform/modules/zoa-access` | Hard ceiling per session API call (`RunTask` is async; Access returns after starting the task) |
-| `lambda_access_concurrency` | 10 (prod) / **-1** (ephemeral) | Terraform | Reserved pool for laptop → Access; see [Lambda model](lambda-model.md) |
-| `SESSION_MAX_DURATION_HOURS` | 4 | Access Lambda env | Max session **deadline** written at `session_start` |
-| `SESSION_IDLE_TIMEOUT_SECONDS` | 3600 | Worker Lambda env | Idle window before reaper may stop the task |
+| Parameter                        | Default                        | Where                          | What it controls                                                                               |
+| -------------------------------- | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Access Lambda timeout            | **30s**                        | `terraform/modules/zoa-access` | Hard ceiling per session API call (`RunTask` is async; Access returns after starting the task) |
+| `lambda_access_concurrency`      | 10 (prod) / **-1** (ephemeral) | Terraform                      | Reserved pool for laptop → Access; see [Lambda model](lambda-model.md)                         |
+| `SESSION_MAX_DURATION_HOURS`     | 4                              | Access Lambda env              | Max session **deadline** written at `session_start`                                            |
+| `SESSION_IDLE_TIMEOUT_SECONDS`   | 3600                           | Worker Lambda env              | Idle window before reaper may stop an **active** task                                          |
+| `SESSION_STALE_CREATING_SECONDS` | 900                            | Worker Lambda env              | Max time in **`creating`** before stale-creating reaper terminates the row                     |
 
-Session **deadline** and **idle** enforcement run on the Worker **`reaper`** route (5m schedule), not in Access. Do not tune session policy by changing `EXECUTION_DEADLINE_SECONDS`.
+Session **deadline**, **stale creating**, and **idle** enforcement run on the Worker **`reaper`** route (5m schedule), not in Access. Do not tune session policy by changing `EXECUTION_DEADLINE_SECONDS`. Seaplane renders Worker/Access env from `config/defaults.yaml` (`zoa_boundary_session_*`); see [ZOA architecture ADR](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md#configuration).
 
-| Doc | Use when |
-| --- | -------- |
-| [Session reaper](../boundary/session-reaper.md) | Deadline vs idle, SSM/CloudWatch activity, `stop_reason` |
-| [Operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership) | End-to-end session lifecycle |
-| [ZOA architecture ADR](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md) | Platform Terraform defaults (Access timeout, concurrency) |
+| Doc                                                                                                                 | Use when                                                           |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [Session reaper](../boundary/session-reaper.md)                                                                     | Three reaper policies, SSM/CloudWatch idle activity, `stop_reason` |
+| [Operator workflow #4](../guides/operator-workflow.md#4-start-session-join-exec-and-ownership)                      | End-to-end session lifecycle                                       |
+| [ZOA architecture ADR](https://github.com/openshift-online/rosa-seaplane/blob/main/docs/design/zoa-architecture.md) | Platform Terraform defaults (Access timeout, concurrency)          |
 
 ## Billing Implications
 

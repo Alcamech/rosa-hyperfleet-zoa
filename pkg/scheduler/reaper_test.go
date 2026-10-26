@@ -12,11 +12,14 @@ import (
 )
 
 type mockSessionStoreReaper struct {
-	expired  []*store.Session
-	active   []*store.Session
-	listErr  error
-	updated  map[string]store.SessionStatus
-	updateFn func(id string, from, to store.SessionStatus) error
+	expired             []*store.Session
+	active              []*store.Session
+	creating            []*store.Session
+	listErr             error
+	updated             map[string]store.SessionStatus
+	updateFn            func(id string, from, to store.SessionStatus) error
+	creatingErr         error
+	stopReasonBySession map[string]store.StopReason
 
 	lastExpiredTarget string
 	lastActiveTarget  string
@@ -29,7 +32,15 @@ func (m *mockSessionStoreReaper) Get(_ context.Context, _ string) (*store.Sessio
 func (m *mockSessionStoreReaper) GetByTaskID(_ context.Context, _ string) (*store.Session, error) {
 	return nil, nil
 }
-func (m *mockSessionStoreReaper) UpdateStatus(_ context.Context, id string, from, to store.SessionStatus, _ map[string]interface{}) error {
+func (m *mockSessionStoreReaper) UpdateStatus(_ context.Context, id string, from, to store.SessionStatus, updates map[string]interface{}) error {
+	if updates != nil {
+		if sr, ok := updates["stopReason"]; ok {
+			if m.stopReasonBySession == nil {
+				m.stopReasonBySession = make(map[string]store.StopReason)
+			}
+			m.stopReasonBySession[id] = store.StopReason(fmt.Sprint(sr))
+		}
+	}
 	if m.updateFn != nil {
 		return m.updateFn(id, from, to)
 	}
@@ -48,6 +59,15 @@ func (m *mockSessionStoreReaper) ListExpired(_ context.Context, targetCluster st
 		return nil, m.listErr
 	}
 	return m.expired, nil
+}
+func (m *mockSessionStoreReaper) ListOpenByTargetStatus(_ context.Context, targetCluster string, status store.SessionStatus) ([]*store.Session, error) {
+	if m.creatingErr != nil {
+		return nil, m.creatingErr
+	}
+	if status == store.SessionStatusCreating {
+		return m.creating, nil
+	}
+	return nil, nil
 }
 func (m *mockSessionStoreReaper) ListActiveBeforeDeadline(_ context.Context, targetCluster string) ([]*store.Session, error) {
 	m.lastActiveTarget = targetCluster
@@ -244,6 +264,53 @@ func (m *mockExecActivity) LastTerminalActivity(_ context.Context, _ string, _ s
 		return time.Time{}, false, m.err
 	}
 	return m.last, m.found, nil
+}
+
+func TestReaper_Run_WhenCreatingPastDeadline_ItShouldTerminateWithDeadlineReason(t *testing.T) {
+	ss := &mockSessionStoreReaper{
+		expired: []*store.Session{
+			{
+				SessionID:     "s-creating-expired",
+				TargetCluster: "mc01",
+				Status:        store.SessionStatusCreating,
+				CreatedAt:     time.Now().Add(-5 * time.Hour).Format(time.RFC3339Nano),
+			},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	r := NewReaper(ss, nil, logger, "mc01", WithStaleCreatingTimeout(15*time.Minute))
+
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ss.updated["s-creating-expired"] != store.SessionStatusTerminated {
+		t.Errorf("expected terminated, got %v", ss.updated)
+	}
+	if ss.stopReasonBySession["s-creating-expired"] != store.StopReasonDeadlineReaperStop {
+		t.Errorf("expected deadlineReaperStop, got %q", ss.stopReasonBySession["s-creating-expired"])
+	}
+}
+
+func TestReaper_Run_WhenStaleCreatingSession_ItShouldTerminateWithoutECS(t *testing.T) {
+	ss := &mockSessionStoreReaper{
+		creating: []*store.Session{
+			{
+				SessionID:     "s-stale",
+				TargetCluster: "mc01",
+				Status:        store.SessionStatusCreating,
+				CreatedAt:     time.Now().Add(-30 * time.Minute).Format(time.RFC3339Nano),
+			},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	r := NewReaper(ss, nil, logger, "mc01", WithStaleCreatingTimeout(15*time.Minute))
+
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ss.updated["s-stale"] != store.SessionStatusTerminated {
+		t.Errorf("expected stale creating session terminated, got %v", ss.updated)
+	}
 }
 
 func TestReaper_Run_WhenNoEcsTask_ItShouldStillUpdateStatus(t *testing.T) {

@@ -6,32 +6,32 @@ Platform Terraform and accounts: [ZOA architecture (rosa-seaplane)](https://gith
 
 ## Start here
 
-| You are…               | Read                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------- |
+| You are…               | Read                                                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Operator** (session) | [Operator workflow](guides/operator-workflow.md) — laptop → TA sequence diagram in [Operator workflow #4](guides/operator-workflow.md#4-start-session-join-exec-and-ownership) |
-| **TA author**          | [Trusted Actions](trusted-actions.md) — writing, testing, conformance gates           |
-| **Contributor**        | [Development](development.md) · [E2E testing](e2e-testing.md)                         |
+| **TA author**          | [Trusted Actions](trusted-actions.md) — writing, testing, conformance gates                                                                                                    |
+| **Contributor**        | [Development](development.md) · [E2E testing](e2e-testing.md)                                                                                                                  |
 
 ## Guides
 
 Operator procedures and laptop-side behavior.
 
-| Document                                              | Description                                                |
-| ----------------------------------------------------- | ---------------------------------------------------------- |
-| [Operator workflow](guides/operator-workflow.md)    | Login → deployments → session → `zoa run` → terminate      |
+| Document                                                | Description                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------- |
+| [Operator workflow](guides/operator-workflow.md)        | Login → deployments → session → `zoa run` → terminate         |
 | [Deployment discovery](guides/deployments-discovery.md) | Failover, `--deployments-region`, DR `--access-url` overrides |
 
 ## Boundary
 
 The boundary is the shell. Everything else happens inside it.
 
-| Document                                          | Description                                                |
-| ------------------------------------------------- | ---------------------------------------------------------- |
-| [ZOA Boundary — architecture](boundary/architecture.md) | Control plane, **SSM topology** (Central vs RC), lifecycle |
+| Document                                                      | Description                                                |
+| ------------------------------------------------------------- | ---------------------------------------------------------- |
+| [ZOA Boundary — architecture](boundary/architecture.md)       | Control plane, **SSM topology** (Central vs RC), lifecycle |
 | [ZOA Boundary — container image](boundary/container-image.md) | `Containerfile.boundary`, Konflux pipeline                 |
 | [ZOA Boundary — identity bridge](boundary/identity-bridge.md) | Task ARN → session → human operator (TA attribution)       |
 | [ZOA Boundary — session logging](boundary/session-logging.md) | CloudWatch log groups, Grafana Explorer forensics          |
-| [ZOA Boundary — session reaper](boundary/session-reaper.md) | Deadline, idle, and operator terminate                     |
+| [ZOA Boundary — session reaper](boundary/session-reaper.md)   | Deadline, stale `creating`, idle, and operator terminate   |
 
 ## Trusted Actions
 
@@ -58,15 +58,15 @@ Cross-cutting concerns that span all three pillars.
 | [Lambda model](architecture/lambda-model.md)     | API, Worker, Access — three modes from one image       |
 | [Implementation](architecture/implementation.md) | Package layout, execution flows, env by `HANDLER_MODE` |
 | [Storage](architecture/storage.md)               | DynamoDB tables, S3, TTL, GSIs                         |
-| [Timeout tuning](architecture/timeout-tuning.md) | TA deadlines; links to Access/boundary session limits   |
+| [Timeout tuning](architecture/timeout-tuning.md) | TA deadlines; links to Access/boundary session limits  |
 
 ## Engineering
 
-| Document                          | Description                                       |
-| --------------------------------- | ------------------------------------------------- |
-| [Development](development.md)     | Build, test, lint, images                         |
-| [E2E testing](e2e-testing.md)     | Functional + monitoring suites, Makefile targets  |
-| [Observability](observability.md) | EMF metrics; Lambda logs in Grafana               |
+| Document                          | Description                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| [Development](development.md)     | Build, test, lint, images                                                            |
+| [E2E testing](e2e-testing.md)     | Functional + monitoring suites, Makefile targets                                     |
+| [Observability](observability.md) | EMF metrics; Lambda logs in Grafana                                                  |
 | [Konflux](konflux.md)             | `rosa-seaplane-zoa-lambda`, `rosa-seaplane-zoa-runner`, `rosa-seaplane-zoa-boundary` |
 
 ## Doc conventions
