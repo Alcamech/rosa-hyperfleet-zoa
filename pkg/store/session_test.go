@@ -222,13 +222,19 @@ func TestDynamoDBSessionStore_ListExpired_WhenExpiredSessionsExist_ItShouldUseTa
 	}
 	item, _ := attributevalue.MarshalMap(expired)
 
+	queryCalls := 0
 	mock := &mockDynamoDBAPI{
 		queryFn: func(_ context.Context, params *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+			queryCalls++
 			if params.IndexName == nil || *params.IndexName != "target-status-index" {
 				t.Errorf("expected target-status-index GSI, got %v", params.IndexName)
 			}
 			if params.KeyConditionExpression == nil {
 				t.Error("expected key condition expression for GSI query")
+			}
+			// ListExpired queries creating then active; only active partition has a hit in this test.
+			if queryCalls == 1 {
+				return &dynamodb.QueryOutput{}, nil
 			}
 			return &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{item}}, nil
 		},
@@ -238,6 +244,9 @@ func TestDynamoDBSessionStore_ListExpired_WhenExpiredSessionsExist_ItShouldUseTa
 	sessions, err := s.ListExpired(context.Background(), "mc01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if queryCalls != 2 {
+		t.Fatalf("expected 2 GSI queries (creating+active), got %d", queryCalls)
 	}
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 expired session, got %d", len(sessions))
@@ -277,13 +286,22 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenSessionsExist_ItShoul
 			if params.IndexName == nil || *params.IndexName != "target-status-index" {
 				t.Errorf("expected target-status-index GSI, got %v", params.IndexName)
 			}
-			if params.FilterExpression != nil {
-				t.Errorf("targetStatusKey is a key attribute and cannot be filtered, got %q", *params.FilterExpression)
+			if params.FilterExpression == nil {
+				t.Fatal("expected FilterExpression for deadline > now")
 			}
-			if params.KeyConditionExpression == nil || !strings.Contains(*params.KeyConditionExpression, "BETWEEN") {
-				t.Errorf("expected BETWEEN on the sort key, got %v", params.KeyConditionExpression)
+			if !strings.Contains(*params.FilterExpression, ">") {
+				t.Errorf("expected greater-than deadline filter, got %q", *params.FilterExpression)
 			}
-			var sawCluster, sawActiveLower, sawCeiling bool
+			if !expressionNamesInclude(params.ExpressionAttributeNames, "deadline") {
+				t.Errorf("expected deadline in ExpressionAttributeNames, got %v", params.ExpressionAttributeNames)
+			}
+			if params.KeyConditionExpression == nil || !strings.Contains(*params.KeyConditionExpression, "begins_with") {
+				t.Errorf("expected begins_with on targetStatusKey, got %v", params.KeyConditionExpression)
+			}
+			if strings.Contains(*params.FilterExpression, "targetStatusKey") {
+				t.Error("targetStatusKey must not appear in FilterExpression")
+			}
+			var sawCluster, sawActivePrefix bool
 			for _, v := range params.ExpressionAttributeValues {
 				s, ok := v.(*types.AttributeValueMemberS)
 				if !ok {
@@ -292,13 +310,11 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenSessionsExist_ItShoul
 				switch {
 				case s.Value == "mc01":
 					sawCluster = true
-				case s.Value == activeStatusKeyCeiling:
-					sawCeiling = true
-				case strings.HasPrefix(s.Value, "active#") && strings.HasSuffix(s.Value, "\uffff"):
-					sawActiveLower = true
+				case s.Value == "active#":
+					sawActivePrefix = true
 				}
 			}
-			if !sawCluster || !sawActiveLower || !sawCeiling {
+			if !sawCluster || !sawActivePrefix {
 				t.Errorf("key condition values = %#v", params.ExpressionAttributeValues)
 			}
 			return &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{item}}, nil
@@ -313,6 +329,73 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenSessionsExist_ItShoul
 	if len(sessions) != 1 || sessions[0].SessionID != "task-active" {
 		t.Fatalf("unexpected sessions: %+v", sessions)
 	}
+}
+
+func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenMixedDeadlines_ItShouldReturnOnlyFuture(t *testing.T) {
+	now := time.Now()
+	pastDeadline := now.Add(-2 * time.Hour).Format(time.RFC3339Nano)
+	futureDeadline := now.Add(2 * time.Hour).Format(time.RFC3339Nano)
+
+	past := &Session{
+		SessionID:        "sess-past",
+		TargetCluster:    "mc01",
+		Status:           SessionStatusActive,
+		Deadline:         pastDeadline,
+		TargetStatusKey:  SessionTargetStatusKey(SessionStatusActive, pastDeadline),
+	}
+	future := &Session{
+		SessionID:        "sess-future",
+		TargetCluster:    "mc01",
+		Status:           SessionStatusActive,
+		Deadline:         futureDeadline,
+		TargetStatusKey:  SessionTargetStatusKey(SessionStatusActive, futureDeadline),
+	}
+	pastItem, _ := attributevalue.MarshalMap(past)
+	futureItem, _ := attributevalue.MarshalMap(future)
+
+	nowCutoff := now.Format(time.RFC3339Nano)
+	mock := &mockDynamoDBAPI{
+		queryFn: func(_ context.Context, params *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+			if params.FilterExpression == nil || !expressionNamesInclude(params.ExpressionAttributeNames, "deadline") {
+				t.Fatal("expected deadline > now filter")
+			}
+			var filtered []map[string]types.AttributeValue
+			for _, item := range []map[string]types.AttributeValue{pastItem, futureItem} {
+				var sess Session
+				if err := attributevalue.UnmarshalMap(item, &sess); err != nil {
+					t.Fatal(err)
+				}
+				if sess.Deadline > nowCutoff {
+					filtered = append(filtered, item)
+				}
+			}
+			return &dynamodb.QueryOutput{Items: filtered}, nil
+		},
+	}
+
+	s := NewSessionStore(mock, "test-sessions", 30)
+	sessions, err := s.ListActiveBeforeDeadline(context.Background(), "mc01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d: %+v", len(sessions), sessions)
+	}
+	if sessions[0].SessionID != "sess-future" {
+		t.Errorf("expected sess-future, got %q", sessions[0].SessionID)
+	}
+}
+
+func expressionNamesInclude(names map[string]string, attr string) bool {
+	if names == nil {
+		return false
+	}
+	for _, v := range names {
+		if v == attr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDynamoDBSessionStore_GetByTaskID_WhenFound_ItShouldUseTaskIDIndex(t *testing.T) {
