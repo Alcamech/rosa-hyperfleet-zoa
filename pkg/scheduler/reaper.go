@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
@@ -108,17 +110,12 @@ func (r *Reaper) runDeadline(ctx context.Context) error {
 
 	r.logger.Info("reaper: found expired sessions", "count", len(expired), "target_cluster", r.targetCluster)
 
-	var errs []error
+	batch := &terminationBatch{}
 	for _, session := range expired {
-		if err := r.terminateSession(ctx, session, store.StopReasonDeadlineReaperStop); err != nil {
-			errs = append(errs, err)
-		}
+		batch.record(session.SessionID, r.terminateSession(ctx, session, store.StopReasonDeadlineReaperStop))
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("reaper: %d of %d deadline terminations failed: %v", len(errs), len(expired), errs[0])
-	}
-	return nil
+	batch.logOutcome(r.logger, "deadline")
+	return batch.fail("deadline")
 }
 
 func (r *Reaper) runStaleCreating(ctx context.Context) error {
@@ -133,8 +130,7 @@ func (r *Reaper) runStaleCreating(ctx context.Context) error {
 	}
 
 	cutoff := time.Now().Add(-r.staleCreatingTimeout)
-	var errs []error
-	staleCount := 0
+	batch := &terminationBatch{}
 	for _, session := range creating {
 		created, err := parseSessionTimestamp(session.CreatedAt)
 		if err != nil {
@@ -145,21 +141,15 @@ func (r *Reaper) runStaleCreating(ctx context.Context) error {
 		if created.After(cutoff) {
 			continue
 		}
-		staleCount++
-		if err := r.terminateSession(ctx, session, store.StopReasonStaleCreatingReaper); err != nil {
-			errs = append(errs, err)
-		}
+		batch.record(session.SessionID, r.terminateSession(ctx, session, store.StopReasonStaleCreatingReaper))
 	}
 
-	if staleCount == 0 {
+	if len(batch.attempted) == 0 {
 		r.logger.Info("reaper: no stale creating sessions found")
 	} else {
-		r.logger.Info("reaper: terminated stale creating sessions", "count", staleCount)
+		batch.logOutcome(r.logger, "stale creating")
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("reaper: %d stale creating termination errors: %v", len(errs), errs[0])
-	}
-	return nil
+	return batch.fail("stale creating")
 }
 
 func (r *Reaper) runIdle(ctx context.Context) error {
@@ -172,8 +162,8 @@ func (r *Reaper) runIdle(ctx context.Context) error {
 
 	cutoff := time.Now().Add(-r.idleTimeout)
 
+	batch := &terminationBatch{}
 	var errs []error
-	idleCount := 0
 	for _, session := range active {
 		if session.TaskID == "" || session.TargetCluster == "" {
 			continue
@@ -205,22 +195,58 @@ func (r *Reaper) runIdle(ctx context.Context) error {
 			}
 		}
 
-		idleCount++
-		if err := r.terminateSession(ctx, session, store.StopReasonIdleReaperStop); err != nil {
-			errs = append(errs, err)
-		}
+		batch.record(session.SessionID, r.terminateSession(ctx, session, store.StopReasonIdleReaperStop))
 	}
 
-	if idleCount == 0 {
+	if len(batch.attempted) == 0 && len(errs) == 0 {
 		r.logger.Info("reaper: no idle sessions found")
-	} else {
-		r.logger.Info("reaper: terminated idle sessions", "count", idleCount)
+	} else if len(batch.attempted) > 0 {
+		batch.logOutcome(r.logger, "idle")
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("reaper: %d idle termination errors: %v", len(errs), errs[0])
+	idleErrs := append(errs, batch.errs...)
+	if len(idleErrs) > 0 {
+		return fmt.Errorf("reaper: idle: %d error(s): %w", len(idleErrs), errors.Join(idleErrs...))
 	}
 	return nil
+}
+
+// terminationBatch tracks per-session terminate attempts for reaper logging and errors.
+type terminationBatch struct {
+	attempted []string
+	succeeded []string
+	errs      []error
+}
+
+func (b *terminationBatch) record(sessionID string, err error) {
+	b.attempted = append(b.attempted, sessionID)
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return
+	}
+	b.succeeded = append(b.succeeded, sessionID)
+}
+
+func (b *terminationBatch) logOutcome(logger *slog.Logger, phase string) {
+	logger.Info("reaper: "+phase+" termination attempts",
+		"attempted", len(b.attempted),
+		"succeeded", len(b.succeeded),
+		"attempted_session_ids", strings.Join(b.attempted, ","),
+	)
+	if len(b.succeeded) > 0 {
+		logger.Info("reaper: "+phase+" sessions terminated",
+			"succeeded", len(b.succeeded),
+			"session_ids", strings.Join(b.succeeded, ","),
+		)
+	}
+}
+
+func (b *terminationBatch) fail(phase string) error {
+	if len(b.errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("reaper: %s: %d of %d termination attempts failed: %w",
+		phase, len(b.errs), len(b.attempted), errors.Join(b.errs...))
 }
 
 func parseSessionTimestamp(value string) (time.Time, error) {
