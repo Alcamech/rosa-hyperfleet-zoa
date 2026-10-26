@@ -12,13 +12,13 @@ import (
 )
 
 type mockSessionStoreReaper struct {
-	expired   []*store.Session
-	active    []*store.Session
-	creating  []*store.Session
-	listErr   error
-	updated   map[string]store.SessionStatus
-	updateFn  func(id string, from, to store.SessionStatus) error
-	creatingErr error
+	expired             []*store.Session
+	active              []*store.Session
+	creating            []*store.Session
+	listErr             error
+	updated             map[string]store.SessionStatus
+	updateFn            func(id string, from, to store.SessionStatus) error
+	creatingErr         error
 	stopReasonBySession map[string]store.StopReason
 
 	lastExpiredTarget string

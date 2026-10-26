@@ -28,11 +28,11 @@ const (
 type StopReason string
 
 const (
-	StopReasonOperatorStop       StopReason = "operatorStop"
-	StopReasonDeadlineReaperStop StopReason = "deadlineReaperStop"
-	StopReasonIdleReaperStop       StopReason = "idleReaperStop"
-	StopReasonProvisionFailed      StopReason = "provisionFailed"
-	StopReasonStaleCreatingReaper  StopReason = "staleCreatingReaperStop"
+	StopReasonOperatorStop        StopReason = "operatorStop"
+	StopReasonDeadlineReaperStop  StopReason = "deadlineReaperStop"
+	StopReasonIdleReaperStop      StopReason = "idleReaperStop"
+	StopReasonProvisionFailed     StopReason = "provisionFailed"
+	StopReasonStaleCreatingReaper StopReason = "staleCreatingReaperStop"
 )
 
 // Session represents a ZOA Boundary session in DynamoDB.

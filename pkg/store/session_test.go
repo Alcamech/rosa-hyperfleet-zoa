@@ -307,10 +307,10 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenSessionsExist_ItShoul
 				if !ok {
 					continue
 				}
-				switch {
-				case s.Value == "mc01":
+				switch s.Value {
+				case "mc01":
 					sawCluster = true
-				case s.Value == "active#":
+				case "active#":
 					sawActivePrefix = true
 				}
 			}
@@ -337,18 +337,18 @@ func TestDynamoDBSessionStore_ListActiveBeforeDeadline_WhenMixedDeadlines_ItShou
 	futureDeadline := now.Add(2 * time.Hour).Format(time.RFC3339Nano)
 
 	past := &Session{
-		SessionID:        "sess-past",
-		TargetCluster:    "mc01",
-		Status:           SessionStatusActive,
-		Deadline:         pastDeadline,
-		TargetStatusKey:  SessionTargetStatusKey(SessionStatusActive, pastDeadline),
+		SessionID:       "sess-past",
+		TargetCluster:   "mc01",
+		Status:          SessionStatusActive,
+		Deadline:        pastDeadline,
+		TargetStatusKey: SessionTargetStatusKey(SessionStatusActive, pastDeadline),
 	}
 	future := &Session{
-		SessionID:        "sess-future",
-		TargetCluster:    "mc01",
-		Status:           SessionStatusActive,
-		Deadline:         futureDeadline,
-		TargetStatusKey:  SessionTargetStatusKey(SessionStatusActive, futureDeadline),
+		SessionID:       "sess-future",
+		TargetCluster:   "mc01",
+		Status:          SessionStatusActive,
+		Deadline:        futureDeadline,
+		TargetStatusKey: SessionTargetStatusKey(SessionStatusActive, futureDeadline),
 	}
 	pastItem, _ := attributevalue.MarshalMap(past)
 	futureItem, _ := attributevalue.MarshalMap(future)

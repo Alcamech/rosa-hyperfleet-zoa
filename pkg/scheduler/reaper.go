@@ -28,9 +28,9 @@ type ExecActivityChecker interface {
 
 // Reaper enforces session deadlines and idle timeouts by terminating boundary sessions.
 type Reaper struct {
-	sessionStore  store.SessionStore
-	ecs           ECSAPI
-	activity      ExecActivityChecker
+	sessionStore         store.SessionStore
+	ecs                  ECSAPI
+	activity             ExecActivityChecker
 	idleTimeout          time.Duration
 	staleCreatingTimeout time.Duration
 	logger               *slog.Logger
@@ -64,10 +64,10 @@ func WithStaleCreatingTimeout(d time.Duration) ReaperOption {
 // mocks with an empty target when the store is not exercised.
 func NewReaper(sessionStore store.SessionStore, ecs ECSAPI, logger *slog.Logger, targetCluster string, opts ...ReaperOption) *Reaper {
 	r := &Reaper{
-		sessionStore:  sessionStore,
-		ecs:           ecs,
-		logger:        logger,
-		targetCluster: targetCluster,
+		sessionStore:         sessionStore,
+		ecs:                  ecs,
+		logger:               logger,
+		targetCluster:        targetCluster,
 		idleTimeout:          DefaultSessionIdleTimeout,
 		staleCreatingTimeout: DefaultStaleCreatingTimeout,
 	}
