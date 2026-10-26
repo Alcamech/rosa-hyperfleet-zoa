@@ -48,6 +48,70 @@ func TestSessionStart_WhenReasonSet_ItShouldPassToAPI(t *testing.T) {
 	}
 }
 
+func TestSessionStart_WhenNoConnect_ItShouldNotCallSessionJoin(t *testing.T) {
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			return &client.SessionStartResponse{
+				SessionID: "sess-nc",
+				Status:    "active",
+				Target:    "mc01",
+			}, nil
+		},
+		sessionJoinFn: func(_ context.Context, _ string) (*client.SessionJoinResponse, error) {
+			t.Fatal("SessionJoin should not be called with --no-connect")
+			return nil, nil
+		},
+	}
+	root := sessionTestRoot(newMockGlobalOpts(mock))
+	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "ROSAENG-1", "--no-connect"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestSessionStart_WhenConnect_ItShouldCallSessionJoin(t *testing.T) {
+	var joinCalled bool
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			return &client.SessionStartResponse{
+				SessionID: "sess-join",
+				Status:    "active",
+				Target:    "mc01",
+				Deadline:  "2030-01-01T00:00:00Z",
+			}, nil
+		},
+		sessionJoinFn: func(_ context.Context, sessionID string) (*client.SessionJoinResponse, error) {
+			joinCalled = true
+			if sessionID != "sess-join" {
+				t.Fatalf("expected session id sess-join, got %q", sessionID)
+			}
+			return &client.SessionJoinResponse{
+				TaskArn:       "arn:aws:ecs:us-east-1:123:task/c/t",
+				ClusterArn:    "arn:aws:ecs:us-east-1:123:cluster/c",
+				Region:        "us-east-1",
+				ContainerName: "zoa-boundary",
+				ExecCommand:   "/bin/bash",
+				ExecCredentials: &client.ExecCredentials{
+					AccessKeyID:     "AKIA",
+					SecretAccessKey: "secret",
+					SessionToken:    "token",
+				},
+			}, nil
+		},
+	}
+	root := sessionTestRoot(newMockGlobalOpts(mock))
+	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "ROSAENG-2"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected ECS Exec to fail in unit test environment")
+	}
+	if !joinCalled {
+		t.Fatal("expected SessionJoin before ECS Exec")
+	}
+}
+
 func TestSessionStart_WhenReasonOnlyInEnv_ItShouldPassToAPI(t *testing.T) {
 	t.Setenv(reason.EnvVar, "ROSAENG-777")
 
@@ -55,7 +119,7 @@ func TestSessionStart_WhenReasonOnlyInEnv_ItShouldPassToAPI(t *testing.T) {
 	mock := &mockClient{
 		sessionStartFn: func(_ context.Context, req *client.SessionStartRequest) (*client.SessionStartResponse, error) {
 			gotReason = req.Reason
-			return &client.SessionStartResponse{SessionID: "sess-env", Status: "creating"}, nil
+			return &client.SessionStartResponse{SessionID: "sess-env", Status: "active"}, nil
 		},
 	}
 	root := sessionTestRoot(newMockGlobalOpts(mock))
