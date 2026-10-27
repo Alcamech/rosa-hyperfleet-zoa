@@ -157,14 +157,11 @@ test-e2e: build $(GINKGO)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
 	$(call run_e2e_monitoring)
 
-# test-e2e-smoke runs only the specs labeled "smoke" — cheap, --dry-run/read-only
-# coverage (discovery + one read TA + one write TA dry-run) meant to be run
-# from rosa-seaplane/rosa-seaplane-api's own e2e jobs so infra/platform
-# changes can't silently break ZOA without adding meaningful time to those
-# runs. Full validation (including real delete_pod/rollout_restart execution)
-# is `make test-e2e`, exercised only from this repo's own on-demand-e2e/nightly.
+# test-e2e-smoke runs only specs with Label("smoke") — fast path for rosa-seaplane/-api presubmits.
+# Includes core TA checks and Access boundary session specs (when ZOA_DEPLOYMENT_NAME contains eph).
+# Those Access specs also run under test-e2e / test-e2e-zoa (full functional, no label filter).
 test-e2e-smoke: build $(GINKGO)
-	$(call run_e2e_parallel,--timeout=5m --label-filter=smoke)
+	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
 	$(call run_e2e_monitoring)
 
@@ -174,7 +171,7 @@ test-e2e-zoa: build $(GINKGO)
 
 # test-e2e-zoa-smoke runs only the ZOA functional smoke specs (no monitoring).
 test-e2e-zoa-smoke: build $(GINKGO)
-	$(call run_e2e_parallel,--timeout=5m --label-filter=smoke)
+	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
 
 # test-e2e-monitoring runs only the observability validation suite.
 # Requires RHOBS_API_URL (fails if unset). See docs/observability.md.

@@ -3,8 +3,8 @@ package reason
 import "testing"
 
 func TestNormalize_WhenJiraKey_ItShouldAccept(t *testing.T) {
-	v, err := Normalize("ROSAENG-42")
-	if err != nil || v != "ROSAENG-42" {
+	v, err := Normalize("TEST-12345")
+	if err != nil || v != "TEST-12345" {
 		t.Fatalf("got %q err=%v", v, err)
 	}
 }
@@ -21,7 +21,7 @@ func TestNormalize_WhenInvalid_ItShouldError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	_, err = Normalize("Jira ROSAENG-123")
+	_, err = Normalize("Jira TEST-12345")
 	if err == nil {
 		t.Fatal("expected error for Jira prefix")
 	}

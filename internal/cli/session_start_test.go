@@ -38,12 +38,12 @@ func TestSessionStart_WhenReasonSet_ItShouldPassToAPI(t *testing.T) {
 		},
 	}
 	root := sessionTestRoot(newMockGlobalOpts(mock))
-	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "ROSAENG-4242", "--no-connect"})
+	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "TEST-12345", "--no-connect"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if gotReason != "ROSAENG-4242" {
+	if gotReason != "TEST-12345" {
 		t.Fatalf("expected reason on request, got %q", gotReason)
 	}
 }
@@ -63,7 +63,7 @@ func TestSessionStart_WhenNoConnect_ItShouldNotCallSessionJoin(t *testing.T) {
 		},
 	}
 	root := sessionTestRoot(newMockGlobalOpts(mock))
-	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "ROSAENG-1", "--no-connect"})
+	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "TEST-12345", "--no-connect"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -101,7 +101,7 @@ func TestSessionStart_WhenConnect_ItShouldCallSessionJoin(t *testing.T) {
 		},
 	}
 	root := sessionTestRoot(newMockGlobalOpts(mock))
-	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "ROSAENG-2"})
+	root.SetArgs([]string{"session", "start", "us-east-1", "mc01", "--reason", "TEST-12345"})
 
 	err := root.Execute()
 	if err == nil {
@@ -113,7 +113,7 @@ func TestSessionStart_WhenConnect_ItShouldCallSessionJoin(t *testing.T) {
 }
 
 func TestSessionStart_WhenReasonOnlyInEnv_ItShouldPassToAPI(t *testing.T) {
-	t.Setenv(reason.EnvVar, "ROSAENG-777")
+	t.Setenv(reason.EnvVar, "TEST-12345")
 
 	var gotReason string
 	mock := &mockClient{
@@ -128,7 +128,7 @@ func TestSessionStart_WhenReasonOnlyInEnv_ItShouldPassToAPI(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if gotReason != "ROSAENG-777" {
+	if gotReason != "TEST-12345" {
 		t.Fatalf("expected ZOA_REASON on request, got %q", gotReason)
 	}
 }

@@ -29,7 +29,7 @@ func TestListAudit_WhenEntriesExist_ItShouldReturnNilError(t *testing.T) {
 						Operator:      "arn:aws:iam::123456:user/slopezma",
 						Action:        "get_pods",
 						TargetCluster: "mc-useast1-1",
-						Reason:        "ROSAENG-1234",
+						Reason:        "TEST-12345",
 						ApprovalState: "not_required",
 						ExecutionID:   "exec-abc",
 					},

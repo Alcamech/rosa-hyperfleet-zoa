@@ -27,7 +27,7 @@ setup() {
     ZOA_DEPLOYMENT="us-east-1-eph" \
     ZOA_TARGET="mc01" \
     ZOA_TARGET_TYPE="mc" \
-    ZOA_REASON="ROSAENG-99" \
+    ZOA_REASON="TEST-12345" \
     AWS_REGION="us-east-1" \
     bash -c '
       zoa_compound_session_id() { printf "us-east-1-eph/d77d58c8-1111-2222"; }
@@ -43,7 +43,7 @@ setup() {
   [[ "${output}" != *"not env vars alone"* ]]
   [[ "${output}" == *"==> ZOA Boundary session"* ]]
   [[ "${output}" == *"==> Session reason"* ]]
-  [[ "${output}" == *"ROSAENG-99"* ]]
+  [[ "${output}" == *"TEST-12345"* ]]
   [[ "${output}" == *"us-east-1-eph/d77d58c8-1111-2222"* ]]
   [[ "${output}" != *"==> Remember"* ]]
   [[ "${output}" == *"CLAUDE.md"* ]]

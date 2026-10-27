@@ -10,14 +10,17 @@ ZOA has two independent test suites that compose via Makefile targets:
 
 | Suite          | Path                   | What it validates                                                     | Requires                                 |
 | -------------- | ---------------------- | --------------------------------------------------------------------- | ---------------------------------------- |
-| **Functional** | `test/e2e/`            | ZOA CLI, Trusted Actions, executor, RBAC, cooldown, audit, CLI output | `ZOA_RC_API_URL` and/or `ZOA_MC_API_URL` |
+| **Functional** | `test/e2e/`            | ZOA CLI, Trusted Actions, Access boundary sessions (per RC/MC worker), executor, RBAC, cooldown, audit | `ZOA_RC_API_URL` and/or `ZOA_MC_API_URL`; **`ZOA_DEPLOYMENT_NAME`** (required); Access specs when name contains `eph` + `ZOA_CENTRAL_AWS_PROFILE` (default `rrp-central`) |
 | **Monitoring** | `test/e2e-monitoring/` | Observability pipeline — metrics in Thanos, recording rules, alerts   | `RHOBS_API_URL` (required)               |
 
-Both suites use **Ginkgo labels** to define scope:
+Both suites use **Ginkgo labels** to choose which specs a Makefile target runs:
 
-- **Smoke** (`Label("smoke")`): minimal subset that validates core health in ~2 min.
-  Runs on every PR via consumer repos (`rosa-seaplane`, `rosa-seaplane-api`).
-- **Full** (all specs): comprehensive coverage. Runs on nightlies and ZOA's own `on-demand-e2e`.
+- **`Label("smoke")`**: tags specs that are safe and fast enough for **consumer presubmits**
+  (`rosa-seaplane` / `rosa-seaplane-api` call `make test-e2e-smoke`, which applies
+  `--label-filter=smoke`). Smoke-labeled specs **also run** under **`make test-e2e`** and
+  **`make test-e2e-zoa`** (no label filter) — nightlies, ZOA `on-demand-e2e`, and standing-env
+  jobs exercise the full functional suite, which includes every smoke spec plus deep TA coverage.
+- **Full functional** (default ginkgo run): all specs in `test/e2e/`, smoke-labeled or not.
 
 ### Makefile Targets
 
@@ -35,11 +38,21 @@ functional tests only.
 
 ### Functional Suite Details
 
-**Smoke** (6 specs, ~2 min per target): `zoa version`, `zoa actions` discovery, one kube-api
-read (`get_resource --resource nodes`), one aws-api read (`list_eks_clusters`), one write TA
-`--dry-run` (`rollout_restart`), one async execution with `--wait`.
+**Smoke-labeled TA specs** (~2 min per parallel worker): `zoa version`, `zoa actions`, kube/aws
+reads, `rollout_restart` dry-run, one async `--wait`. These run on consumer PRs (smoke filter)
+and again as part of the full functional suite.
 
-**Full**: every registered Trusted Action, both scopes (`kube-api`/`aws-api`),
+**Access boundary sessions** (`test/e2e/cmd_access_test.go` — first functional e2e for
+deployments/targets autodiscovery and session lifecycle): central profile (`zoa deployments`,
+`zoa targets`, `session start --no-connect`, list, history, terminate, CLI validation). Specs
+are **`Label("smoke")`** so ephemeral consumer presubmits get the same coverage you validate
+manually with `make test-e2e-smoke`; they are **not smoke-only** — `make test-e2e` /
+`make test-e2e-zoa` and ZOA nightlies run them too. Access specs run only when
+**`ZOA_DEPLOYMENT_NAME` contains `eph`** (ephemeral CI today). Integration/stage set the name
+(e.g. `us-east-1`) but **skip** Access until CI mounts **`rrp-central`** (temporary gate;
+see `accessE2EEnabled` in `test/e2e/access_helpers_test.go`).
+
+**Full functional** (beyond the smoke subset): every registered Trusted Action, both scopes (`kube-api`/`aws-api`),
 read+write+dry-run, sync+async, RC and MC, real (non-dry-run) `delete_pod`/`rollout_restart`
 against `kube-system/coredns`, cooldown enforcement, all CLI commands (`get`, `runs`, `audit`,
 `output`, `logs`, `download`), generic param validation, e2e conformance checks.
@@ -386,17 +399,15 @@ This ensures:
 | `make test-e2e` (from this repo directly)                | Manual — set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` and `ZOA_MC_AWS_PROFILE=rrp-management-dev`                                                       |
 | CI (`nightly-ephemeral`, `on-demand-e2e`)                | Automatic — Vault `aws_config` includes `rrp-central`, `rrp-rc`, and `rrp-mc`; today's Lambda e2e uses only `rrp-rc`/`rrp-mc` (direct Function URLs) |
 
-### ZOA Access / Boundary e2e (future)
+### Access boundary sessions (`test/e2e/`)
 
-Commands such as `zoa deployments`, `zoa targets`, and `zoa session` use **central** credentials (SSM in central → assume invoker in RC). They do not use `ZOA_RC_API_URL` / `rrp-rc` for the Access Lambda path.
+Operator path: `ZOA_CENTRAL_AWS_PROFILE` (default `rrp-central`) and **`ZOA_DEPLOYMENT_NAME`**
+(required — same as the suite configuration check). Specs **skip** when the deployment name
+does not contain **`eph`** — temporary until int/stage nightlies ship central `aws_config` and
+we drop the substring check. Each parallel RC/MC worker validates session lifecycle for its
+target (`regional` vs `mc01`).
 
-When adding Access/Boundary e2e specs:
-
-- Set default profile to **`rrp-central`** inside CI (same name as pipeline/ephemeral Vault config), or introduce **`ZOA_CENTRAL_AWS_PROFILE`** mirroring `ZOA_RC_AWS_PROFILE`.
-- Local dev: **`rrp-central-dev`** / **`rrp-ephemeral-central`** mapped to container **`rrp-central`** (already done in `ephemeral-env.sh` for central; extend e2e env when tests land).
-- **Integration/stage** nightly secrets today ship `rrp-rc` + customer profiles only — add **`rrp-central`** to those Vault `aws_config` blobs when standing envs run Access e2e (same pattern as ephemeral creds).
-
-| Smoke via `rosa-seaplane`/`rosa-seaplane-api` CI jobs | Automatic — same Prow secret; `rosa-seaplane/ci/e2e-tests.sh` sets profiles, then calls `make test-e2e-smoke` |
+Invoker trust in CI ephemeral must include central role **`ci`** (Terraform `ci=true` on render).
 
 ## CI: How It Runs
 
@@ -423,8 +434,8 @@ the deep suite runs against the PR's own code and images.
 Their `nightly-ephemeral`, `on-demand-e2e`, and `rosa-regionality-compatibility-e2e` jobs call
 `rosa-seaplane/ci/e2e-tests.sh`, which clones `rosa-seaplane-zoa@main` and runs:
 
-- PRs (`JOB_TYPE=presubmit`): `make test-e2e-smoke` (~2min, 6 specs per target)
-- Nightlies (`JOB_TYPE=periodic`): `make test-e2e` (full deep suite)
+- PRs (`JOB_TYPE=presubmit`): `make test-e2e-smoke` (smoke-labeled functional specs + monitoring smoke — fast core check, includes Access boundary specs when `eph`)
+- Nightlies (`JOB_TYPE=periodic`): `make test-e2e` (full functional + monitoring — all TA depth **and** the same smoke-labeled specs, including Access)
 
 These jobs always test against whatever image tags are pinned in `rosa-seaplane` — they never
 inject a custom ZOA image.
