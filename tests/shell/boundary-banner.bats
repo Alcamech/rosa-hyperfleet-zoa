@@ -26,7 +26,7 @@ setup() {
 }
 
 @test "quick start omits --reason when ZOA_REASON is set" {
-  run env ZOA_REASON="ROSAENG-1234" bash -c '
+  run env ZOA_REASON="TEST-12345" bash -c '
     source "$1"
     zoa_boundary_print_quick_start
   ' bash "${BANNER}"
@@ -44,5 +44,5 @@ setup() {
   ' bash "${BANNER}"
 
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"--reason ROSAENG-1234"* ]]
+  [[ "${output}" == *"--reason TEST-12345"* ]]
 }

@@ -307,7 +307,7 @@ func TestAccessHandler_WhenSessionStart_ItShouldProvisionBoundaryTask(t *testing
 	body := sessionStartRequest{
 		DeploymentName: "us-east-1",
 		Target:         "mc01",
-		Reason:         "ROSAENG-1234",
+		Reason:         "TEST-12345",
 	}
 
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/start", body, accessHeaders())
@@ -337,8 +337,8 @@ func TestAccessHandler_WhenSessionStart_ItShouldProvisionBoundaryTask(t *testing
 	if sessions.sessions[0].AccountID != "123456789012" {
 		t.Errorf("expected account_id from X-Account-ID, got %q", sessions.sessions[0].AccountID)
 	}
-	if sessions.sessions[0].Reason != "ROSAENG-1234" {
-		t.Errorf("expected reason ROSAENG-1234, got %q", sessions.sessions[0].Reason)
+	if sessions.sessions[0].Reason != "TEST-12345" {
+		t.Errorf("expected reason TEST-12345, got %q", sessions.sessions[0].Reason)
 	}
 	if sessions.sessions[0].Status != store.SessionStatusActive {
 		t.Errorf("expected status active, got %q", sessions.sessions[0].Status)
@@ -352,7 +352,7 @@ func TestAccessHandler_WhenSessionStart_ItShouldProvisionBoundaryTask(t *testing
 	if ecs.lastRun.Tags["Component"] != "zoa" || ecs.lastRun.Tags["function"] != "zoa" {
 		t.Errorf("expected Component and function zoa tags on task, got %v", ecs.lastRun.Tags)
 	}
-	if ecs.lastRun.Environment["ZOA_REASON"] != "ROSAENG-1234" {
+	if ecs.lastRun.Environment["ZOA_REASON"] != "TEST-12345" {
 		t.Errorf("expected ZOA_REASON on task, got %v", ecs.lastRun.Environment)
 	}
 }
@@ -396,7 +396,7 @@ func TestAccessHandler_WhenSessionJoinFromCreatingWithoutTask_ItShouldReturn409(
 				Operator:       "slopezma",
 				TargetCluster:  "mc01",
 				DeploymentName: "us-east-1",
-				Reason:         "ROSAENG-5678",
+				Reason:         "TEST-12345",
 				Status:         store.SessionStatusCreating,
 				Deadline:       "2030-01-01T00:00:00Z",
 			},
@@ -475,7 +475,7 @@ func TestAccessHandler_WhenSessionStartTargetNotFound_ItShouldReturn404(t *testi
 	body := sessionStartRequest{
 		DeploymentName: "us-east-1",
 		Target:         "nonexistent",
-		Reason:         "ROSAENG-1234",
+		Reason:         "TEST-12345",
 	}
 
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/start", body, accessHeaders())
@@ -738,7 +738,7 @@ func TestAccessHandler_WhenSessionStartStoreFails_ItShouldReturn500(t *testing.T
 	body := sessionStartRequest{
 		DeploymentName: "us-east-1",
 		Target:         "mc01",
-		Reason:         "ROSAENG-1234",
+		Reason:         "TEST-12345",
 	}
 
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/start", body, accessHeaders())
@@ -1005,7 +1005,7 @@ func TestAccessHandler_WhenSessionStartWithRunTask_ItShouldHandleRunTaskFailure(
 	body := sessionStartRequest{
 		DeploymentName: "us-east-1",
 		Target:         "mc01",
-		Reason:         "ROSAENG-5678",
+		Reason:         "TEST-12345",
 	}
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/start", body, accessHeaders())
 

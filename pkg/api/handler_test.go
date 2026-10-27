@@ -270,7 +270,7 @@ func TestHandleCreate_WhenWriteCooldown_ItShouldReturn429(t *testing.T) {
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default", "name": "pod-1"},
 	}
 
@@ -296,7 +296,7 @@ func TestHandleCreate_WhenForceBypassesCooldown_ItShouldCreateExecution(t *testi
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default", "name": "pod-1"},
 		Force:  true,
 	}
@@ -329,7 +329,7 @@ func TestHandleCreate_WhenDifferentParams_ItShouldNotTriggerCooldown(t *testing.
 
 	// Same action, different params — should NOT be blocked by cooldown
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default", "name": "pod-2"}, // different name
 	}
 
@@ -358,7 +358,7 @@ func TestHandleCreate_WhenDryRunRecent_ItShouldNotTriggerCooldown(t *testing.T) 
 
 	// Same params, but recent was dry-run — should NOT be blocked
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default", "name": "pod-1"},
 	}
 
@@ -377,7 +377,7 @@ func TestHandleCreate_WhenMaxConcurrentExceeded_ItShouldReturn429(t *testing.T) 
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default"},
 	}
 
@@ -410,7 +410,7 @@ func TestHandleCreate_WhenCooldownRejected_ItShouldRecordAuditWith429(t *testing
 	h := testHandlerWithCustomAudit(execStore, auditCapture)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default", "name": "pod-1"},
 	}
 	rr := doRequest(h, "POST", "/api/v0/trusted-actions/test-write/run", body, defaultHeaders())
@@ -427,8 +427,8 @@ func TestHandleCreate_WhenCooldownRejected_ItShouldRecordAuditWith429(t *testing
 	if auditCapture.recorded[0].Action != "test-write" {
 		t.Errorf("expected action=test-write, got %s", auditCapture.recorded[0].Action)
 	}
-	if auditCapture.recorded[0].Reason != "JIRA-123" {
-		t.Errorf("expected reason=JIRA-123, got %s", auditCapture.recorded[0].Reason)
+	if auditCapture.recorded[0].Reason != "TEST-12345" {
+		t.Errorf("expected reason=TEST-12345, got %s", auditCapture.recorded[0].Reason)
 	}
 }
 
@@ -438,7 +438,7 @@ func TestHandleCreate_WhenDispatched_ItShouldRecordReasonInAudit(t *testing.T) {
 	h := testHandlerWithCustomAudit(execStore, auditCapture)
 
 	body := createRequest{
-		Reason:        "ROSAENG-2024",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		ExecutionMode: "async",
 	}
@@ -449,8 +449,8 @@ func TestHandleCreate_WhenDispatched_ItShouldRecordReasonInAudit(t *testing.T) {
 	if len(auditCapture.recorded) == 0 {
 		t.Fatal("expected audit entry for dispatch")
 	}
-	if auditCapture.recorded[0].Reason != "ROSAENG-2024" {
-		t.Errorf("expected reason=ROSAENG-2024, got %q", auditCapture.recorded[0].Reason)
+	if auditCapture.recorded[0].Reason != "TEST-12345" {
+		t.Errorf("expected reason=TEST-12345, got %q", auditCapture.recorded[0].Reason)
 	}
 	if auditCapture.recorded[0].StatusCode != http.StatusAccepted {
 		t.Errorf("expected audit status_code=202 (recorded at dispatch), got %d", auditCapture.recorded[0].StatusCode)
@@ -467,7 +467,7 @@ func TestHandleCreate_WhenForceBypassesMaxConcurrent_ItShouldCreateExecution(t *
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:        "JIRA-123",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		Force:         true,
 		ExecutionMode: "async",
@@ -488,7 +488,7 @@ func TestHandleCreate_WhenDryRun_ItShouldUseDryRunAction(t *testing.T) {
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:        "JIRA-123",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default", "name": "pod-1"},
 		DryRun:        true,
 		ExecutionMode: "async", // avoid needing real executor
@@ -513,7 +513,7 @@ func TestHandleCreate_WhenForced_ItShouldRecordForceInAuditAndExecution(t *testi
 	h := testHandlerWithCustomAudit(execStore, auditCapture)
 
 	body := createRequest{
-		Reason:        "DEMO-021",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		Force:         true,
 		ExecutionMode: "async",
@@ -541,7 +541,7 @@ func TestHandleCreate_WhenDryRunForced_ItShouldRecordBothInAudit(t *testing.T) {
 	h := testHandlerWithCustomAudit(execStore, auditCapture)
 
 	body := createRequest{
-		Reason:        "DEMO-022",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default", "name": "pod-1"},
 		DryRun:        true,
 		Force:         true,
@@ -587,7 +587,7 @@ func TestHandleCreate_WhenReadAction_ItShouldSkipCooldownCheck(t *testing.T) {
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default"},
 	}
 
@@ -604,7 +604,7 @@ func TestHandleCreate_WhenInvalidExecutionMode_ItShouldReturn400(t *testing.T) {
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:        "JIRA-123",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		ExecutionMode: "invalid",
 	}
@@ -644,7 +644,7 @@ func TestHandleCreate_WhenMustGatherGatherInvalidForDeployment_ItShouldRejectBef
 	h := New(cfg, execStore, &mockAuditStore{}, exec, nil, logger)
 
 	body := createRequest{
-		Reason: "RO-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"gather": "rc"},
 	}
 
@@ -686,7 +686,7 @@ func TestHandleCreate_WhenMustGatherSyncOverride_ItShouldReturn400(t *testing.T)
 	h := New(cfg, execStore, &mockAuditStore{}, exec, nil, logger)
 
 	body := createRequest{
-		Reason:        "JIRA-123",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"gather": "mc", "skip_must_gather_image": "true"},
 		ExecutionMode: "sync",
 	}
@@ -709,7 +709,7 @@ func TestHandleCreate_WhenAsyncOverride_ItShouldSetExecutionModeAsync(t *testing
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:        "JIRA-123",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		ExecutionMode: "async",
 	}
@@ -977,7 +977,7 @@ func TestHandleCreate_WhenTimeoutExceedsServerMax_ItShouldReturn400(t *testing.T
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:         "JIRA-123",
+		Reason:         "TEST-12345",
 		Params:         map[string]string{"namespace": "default"},
 		TimeoutSeconds: 999,
 	}
@@ -1000,7 +1000,7 @@ func TestHandleCreate_WhenTimeoutWithinLimit_ItShouldSetCustomTimeout(t *testing
 	h := testHandler(execStore)
 
 	body := createRequest{
-		Reason:         "JIRA-123",
+		Reason:         "TEST-12345",
 		Params:         map[string]string{"namespace": "default"},
 		TimeoutSeconds: 60,
 	}
@@ -1061,7 +1061,7 @@ func TestHandleCreate_WhenSyncSucceeds_ItShouldReturnOutputInline(t *testing.T) 
 	h := testHandlerWithWorkingExecutor(execStore)
 
 	body := createRequest{
-		Reason: "JIRA-123",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default"},
 	}
 
@@ -1122,7 +1122,7 @@ func TestHandleCreate_WhenSyncFails_ItShouldReturnLogsInline(t *testing.T) {
 	h := New(cfg, execStore, &mockAuditStore{}, exec, nil, logger)
 
 	body := createRequest{
-		Reason: "JIRA-456",
+		Reason: "TEST-12345",
 		Params: map[string]string{"namespace": "default"},
 	}
 
@@ -1150,7 +1150,7 @@ func TestHandleCreate_WhenAsync_ItShouldNotIncludeInlineOutput(t *testing.T) {
 	h := testHandlerWithWorkingExecutor(execStore)
 
 	body := createRequest{
-		Reason:        "JIRA-789",
+		Reason:        "TEST-12345",
 		Params:        map[string]string{"namespace": "default"},
 		ExecutionMode: "async",
 	}

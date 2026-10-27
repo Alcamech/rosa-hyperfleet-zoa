@@ -9,7 +9,7 @@ import (
 )
 
 func TestRunAction_WhenZOAReasonEnvSet_ItShouldDispatchEnvReason(t *testing.T) {
-	t.Setenv(reason.EnvVar, "ROSAENG-555")
+	t.Setenv(reason.EnvVar, "TEST-12345")
 
 	var dispatchedReason string
 	mock := &mockClient{
@@ -32,13 +32,13 @@ func TestRunAction_WhenZOAReasonEnvSet_ItShouldDispatchEnvReason(t *testing.T) {
 	if err := runAction(context.Background(), global, opts, "get_resource"); err != nil {
 		t.Fatalf("runAction: %v", err)
 	}
-	if dispatchedReason != "ROSAENG-555" {
+	if dispatchedReason != "TEST-12345" {
 		t.Fatalf("expected ZOA_REASON on dispatch, got %q", dispatchedReason)
 	}
 }
 
 func TestRunAction_WhenZOAReasonAndFlagSet_ItShouldPreferFlagReason(t *testing.T) {
-	t.Setenv(reason.EnvVar, "ROSAENG-555")
+	t.Setenv(reason.EnvVar, "TEST-99999")
 
 	var dispatchedReason string
 	mock := &mockClient{
@@ -57,11 +57,11 @@ func TestRunAction_WhenZOAReasonAndFlagSet_ItShouldPreferFlagReason(t *testing.T
 	}
 
 	global := newMockGlobalOpts(mock)
-	opts := &runOptions{reason: "ROSAENG-888"}
+	opts := &runOptions{reason: "TEST-12345"}
 	if err := runAction(context.Background(), global, opts, "get_resource"); err != nil {
 		t.Fatalf("runAction: %v", err)
 	}
-	if dispatchedReason != "ROSAENG-888" {
+	if dispatchedReason != "TEST-12345" {
 		t.Fatalf("--reason must win over ZOA_REASON; dispatch reason was %q", dispatchedReason)
 	}
 }

@@ -47,7 +47,7 @@ func TestPrintSessionTable_WhenListMode_ItShouldIncludeStopReasonAndEnded(t *tes
 			{
 				SessionID:      "7840ac64-65f7-4198-b9da-8e38fc985d42",
 				TargetCluster:  "eph-regional",
-				Reason:         "ROSAENG-1234",
+				Reason:         "TEST-12345",
 				Status:         "terminated",
 				StopReason:     "idleReaperStop",
 				ExecSessionIDs: []string{"ecs-execute-command-k7zkjuilu2vhsrp76e48ie3ciy"},
@@ -69,7 +69,7 @@ func TestPrintSessionTable_WhenListMode_ItShouldIncludeStopReasonAndEnded(t *tes
 	if !strings.Contains(out, "REASON") || !strings.Contains(out, "STOP REASON") || !strings.Contains(out, "ENDED") {
 		t.Fatalf("expected REASON, STOP REASON and ENDED columns, got:\n%s", out)
 	}
-	if !strings.Contains(out, "ROSAENG-1234") {
+	if !strings.Contains(out, "TEST-12345") {
 		t.Fatalf("expected audit reason in output, got:\n%s", out)
 	}
 	if !strings.Contains(out, "EXEC SESSIONS") {
