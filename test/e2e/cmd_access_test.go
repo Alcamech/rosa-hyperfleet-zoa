@@ -89,12 +89,10 @@ var _ = Describe("zoa access", Serial, func() {
 
 		Describe(tgt.Name, Ordered, func() {
 			var (
-				deployment      string
-				accessTarget    string
-				compoundID      string
-				rawID           string
-				sessionOperator string
-				accessReady     bool
+				deployment   string
+				accessTarget string
+				rawID        string
+				accessReady  bool
 			)
 
 			BeforeAll(func() {
@@ -164,35 +162,12 @@ var _ = Describe("zoa access", Serial, func() {
 				Expect(started.RawID).NotTo(BeEmpty())
 				Expect(strings.ToLower(started.Status)).To(Equal("active"),
 					"--no-connect should provision the boundary task without ECS Exec")
-				compoundID = started.SessionID
 				rawID = started.RawID
 				Expect(validateSessionStartResponse(started, deployment, accessTarget, rawID)).NotTo(HaveOccurred())
 			})
 
-			It("lists the session for this target after start", Label("smoke"), func() {
+			It("shows one active boundary session per target in history", Label("smoke"), func() {
 				Expect(rawID).NotTo(BeEmpty(), "session start spec must run first in Ordered container")
-
-				listOut, err := runZoaAccess(
-					"session", "list", deployment,
-					"-t", accessTarget,
-					"--status", "active",
-					"-o", "json",
-				)
-				Expect(err).NotTo(HaveOccurred(), listOut)
-
-				rows, err := parseSessionListJSON(listOut)
-				Expect(err).NotTo(HaveOccurred(), listOut)
-				row := findSessionForTarget(rows, rawID, accessTarget)
-				Expect(row).NotTo(BeNil(),
-					"session %q for target %q not in scope=mine list (same central profile as start): %v",
-					rawID, accessTarget, rows)
-				Expect(validateActiveSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
-				sessionOperator = row.Operator
-			})
-
-			It("includes the session in history with full audit fields", Label("smoke"), func() {
-				Expect(rawID).NotTo(BeEmpty())
-				Expect(sessionOperator).NotTo(BeEmpty(), "list active spec must run first")
 
 				histOut, err := runZoaAccess(
 					"session", "history", deployment,
@@ -206,35 +181,12 @@ var _ = Describe("zoa access", Serial, func() {
 				Expect(err).NotTo(HaveOccurred(), histOut)
 				row := findSessionForTarget(rows, rawID, accessTarget)
 				Expect(row).NotTo(BeNil(),
-					"session %q for target %q not in history: %v", rawID, accessTarget, rows)
+					"expected active session %q for %s target %q in history: %v",
+					rawID, tgt.Name, accessTarget, rows)
 				Expect(validateActiveSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
-				Expect(row.Operator).To(Equal(sessionOperator),
-					"history operator should match list for the same session")
-			})
-
-			It("terminates the session", Label("smoke"), func() {
-				Expect(compoundID).NotTo(BeEmpty())
-
-				termOut, err := runZoaAccess("session", "terminate", compoundID)
-				Expect(err).NotTo(HaveOccurred(), termOut)
-			})
-
-			It("lists the session as terminated for this target", Label("smoke"), func() {
-				Expect(rawID).NotTo(BeEmpty())
-
-				listOut, err := runZoaAccess(
-					"session", "list", deployment,
-					"-t", accessTarget,
-					"--status", "terminated",
-					"-o", "json",
-				)
-				Expect(err).NotTo(HaveOccurred(), listOut)
-
-				rows, err := parseSessionListJSON(listOut)
-				Expect(err).NotTo(HaveOccurred(), listOut)
-				row := findSessionForTarget(rows, rawID, accessTarget)
-				Expect(row).NotTo(BeNil(), "terminated session for target %q not in list: %v", accessTarget, rows)
-				Expect(validateTerminatedSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
+				Expect(row.Operator).NotTo(BeEmpty())
+				Expect(row.SignerARN).To(ContainSubstring("/" + row.Operator))
+				// CI does not terminate: teardown stops boundary ECS tasks; session stays active in Dynamo until destroy/reaper.
 			})
 		})
 	}

@@ -12,12 +12,6 @@ import (
 	"time"
 )
 
-// accessE2ERoleSessionName stabilizes the STS session name on the central profile's
-// assumed role (Prow: rrp-central → ci). Each runZoaAccess subprocess otherwise gets a
-// fresh aws-go-sdk-* name; Access stores operator from that suffix and scope=mine on
-// session list must match the name used at session start.
-const accessE2ERoleSessionName = "zoa-e2e-access"
-
 var (
 	centralProfile = envOrDefault("ZOA_CENTRAL_AWS_PROFILE", "rrp-central")
 
@@ -67,11 +61,9 @@ func accessTargetIDForType(rows []accessTargetRow, targetType string) (string, e
 }
 
 func runZoaAccess(args ...string) (string, error) {
-	roleSessionName := envOrDefault("ZOA_ACCESS_E2E_ROLE_SESSION_NAME", accessE2ERoleSessionName)
 	cmd := exec.Command(zoaBin, args...) //nolint:gosec // test helper
-	cmd.Env = append(filterEnv(os.Environ(), "AWS_PROFILE", "ZOA_API_URL", "AWS_ROLE_SESSION_NAME"),
+	cmd.Env = append(filterEnv(os.Environ(), "AWS_PROFILE", "ZOA_API_URL"),
 		"AWS_PROFILE="+centralProfile,
-		"AWS_ROLE_SESSION_NAME="+roleSessionName,
 	)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
