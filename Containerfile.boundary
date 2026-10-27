@@ -103,7 +103,7 @@ FROM ${BASE_IMAGE} AS claude-builder
 
 ARG TARGETARCH=amd64
 # renovate: datasource=github-releases depName=anthropics/claude-code
-ARG CLAUDE_CODE_VERSION="2.1.308"
+ARG CLAUDE_CODE_VERSION="2.1.310"
 ENV CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}"
 
 RUN microdnf install --assumeyes --nodocs tar gzip && microdnf clean all
