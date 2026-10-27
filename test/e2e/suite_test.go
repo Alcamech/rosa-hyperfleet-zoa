@@ -36,6 +36,11 @@ var _ = Describe("suite configuration", func() {
 		Expect(targets).NotTo(BeEmpty(),
 			"no target configured — export ZOA_RC_API_URL and/or ZOA_MC_API_URL before running this suite")
 	})
+
+	It("has ZOA_DEPLOYMENT_NAME set", func() {
+		Expect(zoaDeploymentName()).NotTo(BeEmpty(),
+			"ZOA_DEPLOYMENT_NAME is required — export it before running this suite")
+	})
 })
 
 var _ = BeforeSuite(func() {
