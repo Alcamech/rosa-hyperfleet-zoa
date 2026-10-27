@@ -157,10 +157,9 @@ test-e2e: build $(GINKGO)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
 	$(call run_e2e_monitoring)
 
-# test-e2e-smoke runs only the specs labeled "smoke" — cheap TA coverage plus Access plane
-# smoke (session lifecycle per RC/MC worker) when ZOA_DEPLOYMENT_NAME contains "eph" (temporary
-# until int/stage CI mounts rrp-central — see test/e2e/access_helpers_test.go).
-# Invoked from rosa-seaplane/rosa-seaplane-api e2e jobs. Full validation is `make test-e2e`.
+# test-e2e-smoke runs only specs with Label("smoke") — fast path for rosa-seaplane/-api presubmits.
+# Includes core TA checks and Access boundary session specs (when ZOA_DEPLOYMENT_NAME contains eph).
+# Those Access specs also run under test-e2e / test-e2e-zoa (full functional, no label filter).
 test-e2e-smoke: build $(GINKGO)
 	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="

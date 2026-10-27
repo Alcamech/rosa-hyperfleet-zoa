@@ -1,8 +1,9 @@
 //go:build e2e
 
-// CLI: Access plane (central profile) — deployments, targets, boundary session lifecycle.
-// One Describe per RC/MC worker (parallel ginkgo processes). Access specs are skipped unless
-// accessE2EEnabled() — see TEMPORARY "eph" gate in access_helpers_test.go (int/stage CI).
+// Functional e2e: Access plane (central profile) — deployments, targets, boundary session lifecycle.
+// First validation pass for operator session flow (--no-connect). Specs use Label("smoke") so
+// consumer presubmits (make test-e2e-smoke) run them; they also run in make test-e2e / test-e2e-zoa.
+// Skipped unless accessE2EEnabled() — TEMPORARY "eph" gate in access_helpers_test.go (int/stage CI).
 
 package e2e
 
