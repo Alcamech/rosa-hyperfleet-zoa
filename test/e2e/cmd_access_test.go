@@ -11,7 +11,76 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/reason"
 )
+
+var _ = Describe("zoa access validation", func() {
+	for _, tgt := range targets {
+		tgt := tgt
+
+		Describe(tgt.Name, func() {
+			var (
+				deployment   string
+				accessTarget string
+			)
+
+			BeforeEach(func() {
+				if !accessE2EEnabled() {
+					Skip("Access smoke skipped: ZOA_DEPLOYMENT_NAME must contain eph until int/stage CI has central credentials (temporary gate)")
+				}
+				dep, err := resolveAccessDeployment()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(dep).NotTo(BeEmpty())
+				deployment = dep
+
+				tgtOut, err := runZoaAccess("targets", deployment, "-o", "json")
+				Expect(err).NotTo(HaveOccurred(), tgtOut)
+				rows, err := parseAccessTargetsJSON(tgtOut)
+				Expect(err).NotTo(HaveOccurred(), tgtOut)
+				accessTarget, err = accessTargetIDForType(rows, tgt.TargetType)
+				Expect(err).NotTo(HaveOccurred(), "targets for %s: %v", tgt.TargetType, rows)
+			})
+
+			It("rejects session start without --reason", Label("smoke"), func() {
+				out, err := runZoaAccessExpectFailure(
+					"session", "start", deployment, accessTarget,
+					"--no-connect",
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("reason"),
+					ContainSubstring("required"),
+				))
+			})
+
+			It("rejects session start with invalid reason", Label("smoke"), func() {
+				out, err := runZoaAccessExpectFailure(
+					"session", "start", deployment, accessTarget,
+					"--reason", "invalid-format",
+					"--no-connect",
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(SatisfyAny(
+					ContainSubstring(reason.ExampleJiraIssue),
+					ContainSubstring("not valid"),
+				))
+			})
+
+			It("rejects session start for unknown target", Label("smoke"), func() {
+				out, err := runZoaAccessExpectFailure(
+					"session", "start", deployment, "e2e-nonexistent-target-zoa",
+					"--reason", reasonValue,
+					"--no-connect",
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("target_not_found"),
+					ContainSubstring("not found"),
+				))
+			})
+		})
+	}
+})
 
 var _ = Describe("zoa access", Serial, func() {
 	for _, tgt := range targets {
@@ -19,11 +88,12 @@ var _ = Describe("zoa access", Serial, func() {
 
 		Describe(tgt.Name, Ordered, func() {
 			var (
-				deployment   string
-				accessTarget string
-				compoundID   string
-				rawID        string
-				accessReady  bool
+				deployment      string
+				accessTarget    string
+				compoundID      string
+				rawID           string
+				sessionOperator string
+				accessReady     bool
 			)
 
 			BeforeAll(func() {
@@ -71,6 +141,12 @@ var _ = Describe("zoa access", Serial, func() {
 				id, err := accessTargetIDForType(rows, tgt.TargetType)
 				Expect(err).NotTo(HaveOccurred(), "targets for type %q: %v", tgt.TargetType, rows)
 				Expect(id).To(Equal(accessTarget))
+
+				row := findAccessTargetRow(rows, accessTarget)
+				Expect(row).NotTo(BeNil(), "target %q missing from targets list", accessTarget)
+				Expect(row.VpcID).To(MatchRegexp(`^vpc-`),
+					"target %q SSM row must include vpc_id (MC: mc-zoa-target-ssm pipeline; RC: zoa-lambda target registration)",
+					accessTarget)
 			})
 
 			It("starts a boundary session without ECS Exec", Label("smoke"), func() {
@@ -85,11 +161,11 @@ var _ = Describe("zoa access", Serial, func() {
 				Expect(err).NotTo(HaveOccurred(), startOut)
 				Expect(started.SessionID).NotTo(BeEmpty())
 				Expect(started.RawID).NotTo(BeEmpty())
-				Expect(strings.EqualFold(started.Target, accessTarget)).To(BeTrue())
 				Expect(strings.ToLower(started.Status)).To(Equal("active"),
 					"--no-connect should provision the boundary task without ECS Exec")
 				compoundID = started.SessionID
 				rawID = started.RawID
+				Expect(validateSessionStartResponse(started, deployment, accessTarget, rawID)).NotTo(HaveOccurred())
 			})
 
 			It("lists the session for this target after start", Label("smoke"), func() {
@@ -109,11 +185,13 @@ var _ = Describe("zoa access", Serial, func() {
 				Expect(row).NotTo(BeNil(),
 					"session %q for target %q not in scope=mine list (same central profile as start): %v",
 					rawID, accessTarget, rows)
-				Expect(strings.ToLower(row.Status)).To(Equal("active"))
+				Expect(validateActiveSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
+				sessionOperator = row.Operator
 			})
 
-			It("includes the session in history for this target", Label("smoke"), func() {
+			It("includes the session in history with full audit fields", Label("smoke"), func() {
 				Expect(rawID).NotTo(BeEmpty())
+				Expect(sessionOperator).NotTo(BeEmpty(), "list active spec must run first")
 
 				histOut, err := runZoaAccess(
 					"session", "history", deployment,
@@ -122,7 +200,15 @@ var _ = Describe("zoa access", Serial, func() {
 					"-o", "json",
 				)
 				Expect(err).NotTo(HaveOccurred(), histOut)
-				Expect(histOut).To(ContainSubstring(rawID))
+
+				rows, err := parseSessionListJSON(histOut)
+				Expect(err).NotTo(HaveOccurred(), histOut)
+				row := findSessionForTarget(rows, rawID, accessTarget)
+				Expect(row).NotTo(BeNil(),
+					"session %q for target %q not in history: %v", rawID, accessTarget, rows)
+				Expect(validateActiveSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
+				Expect(row.Operator).To(Equal(sessionOperator),
+					"history operator should match list for the same session")
 			})
 
 			It("terminates the session", Label("smoke"), func() {
@@ -147,7 +233,7 @@ var _ = Describe("zoa access", Serial, func() {
 				Expect(err).NotTo(HaveOccurred(), listOut)
 				row := findSessionForTarget(rows, rawID, accessTarget)
 				Expect(row).NotTo(BeNil(), "terminated session for target %q not in list: %v", accessTarget, rows)
-				Expect(strings.ToLower(row.Status)).To(Equal("terminated"))
+				Expect(validateTerminatedSessionRecord(*row, accessTarget, rawID, reasonValue)).NotTo(HaveOccurred())
 			})
 		})
 	}
