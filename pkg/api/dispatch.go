@@ -62,6 +62,15 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		return
 	}
 
+	const maxDispatchBodyBytes = 64 << 10 // 64 KiB
+	if r.ContentLength > maxDispatchBodyBytes {
+		h.recordAudit(r, http.StatusRequestEntityTooLarge, actionName, "")
+		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
+		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds maximum allowed size")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxDispatchBodyBytes)
+
 	var req createRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.recordAudit(r, http.StatusBadRequest, actionName, "")
