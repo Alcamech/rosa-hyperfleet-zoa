@@ -8,10 +8,10 @@
 # are checksum-verified.
 
 # Pinned linux/amd64 from ubi-minimal:9.8-1790555810. Mintmaker/Renovate updates digest.
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:0e40cd75c9a128b6b9db185c8220193dc46e86dbf97815555df255c622683570
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:5c9e61f364f90de936dae884069044e372a1441288203d83f40783d633244b2f
 
 # Pinned linux/amd64 from go-toolset:1.26.7-1790174511. Mintmaker/Renovate updates digest.
-ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:5d3a21b63721786a1f6832a1369ed5db4058a613ec0483ec57b83fadc1fa6c56
+ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:bec790c94b140e2e7ea9a3b711693ed703fe8ad3ab95095015e2b532e5bee967
 
 # --------------------------------------------------------------------------
 # builder — Go build (zoa CLI)

@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1792906297 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1793107762 AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 USER 0
