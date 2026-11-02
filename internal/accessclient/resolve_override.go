@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/awsarn"
 )
 
 // ErrDirectAccessPairRequired is returned when only one direct-Access override flag is set.
@@ -58,7 +60,7 @@ func resolveFromDirectAccess(ctx context.Context, accessURL, invokerRoleARN stri
 		return nil, fmt.Errorf("invoker role identity: %w", err)
 	}
 
-	accountID := accountIDFromIAMARN(invokerRoleARN)
+	accountID := awsarn.AccountID(invokerRoleARN)
 
 	return &DeploymentInfo{
 		AccessURL:   accessURL,
@@ -67,17 +69,4 @@ func resolveFromDirectAccess(ctx context.Context, accessURL, invokerRoleARN stri
 		SessionName: sessionName,
 		OperatorARN: operatorARN,
 	}, nil
-}
-
-// accountIDFromIAMARN returns the 12-digit account from arn:aws:iam::ACCOUNT:...
-func accountIDFromIAMARN(arn string) string {
-	parts := strings.Split(arn, ":")
-	if len(parts) < 5 {
-		return ""
-	}
-	id := parts[4]
-	if len(id) != 12 {
-		return ""
-	}
-	return id
 }

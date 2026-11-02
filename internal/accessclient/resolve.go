@@ -25,7 +25,7 @@ type DeploymentInfo struct {
 	Region      string                  // Deployment AWS region
 	AccountID   string                  // Deployment AWS account
 	SessionName string                  // SRE username (RoleSessionName on invoker role)
-	OperatorARN string                  // Full STS ARN after assuming invoker (for X-Operator)
+	OperatorARN string                  // Full STS ARN after assuming invoker (SigV4; Lambda reads IAM authorizer)
 }
 
 // ssmDeployment mirrors the JSON stored in SSM by Terraform.

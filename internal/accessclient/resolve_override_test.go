@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/awsarn"
 )
 
 func TestDirectAccessOverrideActive_WhenBothSet_ItShouldBeTrue(t *testing.T) {
@@ -60,8 +62,8 @@ func TestValidateDirectAccessPair_WhenBothOrNeither_ItShouldSucceed(t *testing.T
 	}
 }
 
-func TestAccountIDFromIAMARN_WhenValidRole_ItShouldReturnAccount(t *testing.T) {
-	got := accountIDFromIAMARN("arn:aws:iam::123456789012:role/foo-zoa-access-invoker")
+func TestAwsarnAccountID_WhenValidRole_ItShouldReturnAccount(t *testing.T) {
+	got := awsarn.AccountID("arn:aws:iam::123456789012:role/foo-zoa-access-invoker")
 	if got != "123456789012" {
 		t.Fatalf("got %q", got)
 	}
