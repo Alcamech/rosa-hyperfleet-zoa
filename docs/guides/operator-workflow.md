@@ -138,6 +138,7 @@ Use **`--exec-script '<bash script>'`** on **`zoa session start`** or **`zoa ses
 - **`--exec-script`** cannot be used with **`-o json`** (stdout is the Exec PTY transcript, not session JSON).
 - On **`session start`**, **`--exec-script`** cannot be used with **`--no-connect`** (exec-script requires Exec).
 - **`--exec-script-timeout`** (default `10m`) caps wall-clock time for the exec-script session.
+- **`--exec-script-max-output`** (default `16777216`, 16 MiB) caps how much Exec PTY output the CLI keeps in memory and prints on **stdout**. If the transcript exceeds the limit, stdout includes a `__ZOA_EXEC_SCRIPT_TRUNCATED:max=…` line, **stderr** warns, and the CLI exits with an error — the **full** transcript remains in CloudWatch. Prefer several smaller `--exec-script` runs over one huge script; raise the flag only when necessary.
 
 After exec-script ends, the boundary **ECS task keeps running** until **`zoa session terminate`** (same as interactive **`exit`**). The CLI prints hints with **`zoa session join <deployment>/<id>`** and **`zoa session terminate …`**. For automation without `-o json`, read the compound id from stderr: the **`✓ deployment/id [target]`** line after start, or the **Re-join session:** hint after Exec ends.
 

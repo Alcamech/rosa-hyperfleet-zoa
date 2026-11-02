@@ -14,6 +14,7 @@ import (
 
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/ecsexec"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/boundaryexec"
 )
@@ -65,6 +66,7 @@ func newSessionStartCommand(opts *GlobalOptions) *cobra.Command {
 	var flagNoConnect bool
 	var flagExecScript string
 	var flagExecScriptTimeout time.Duration
+	var flagExecScriptMaxOutput int
 
 	cmd := &cobra.Command{
 		Use:   "start [deployment] [target]",
@@ -119,6 +121,9 @@ On start, --exec-script provisions the task, joins, runs the script, and exits.`
 			if flagExecScript != "" && (flagNoConnect || opts.OutputFormat == output.FormatJSON) {
 				return fmt.Errorf("--exec-script requires an interactive connect (omit --no-connect and -o json)")
 			}
+			if flagExecScript != "" && flagExecScriptMaxOutput <= 0 {
+				return fmt.Errorf("--exec-script-max-output must be positive")
+			}
 
 			c, err := getClient(opts)
 			if err != nil {
@@ -158,7 +163,7 @@ On start, --exec-script provisions the task, joins, runs the script, and exits.`
 				}
 				region := sessionJoinRegion(opts, joinResp)
 				if flagExecScript != "" {
-					if err := runSessionECSExecScript(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp, flagExecScript, flagExecScriptTimeout); err != nil {
+					if err := runSessionECSExecScript(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp, flagExecScript, flagExecScriptTimeout, flagExecScriptMaxOutput); err != nil {
 						return fmt.Errorf("ECS Exec script: %w", err)
 					}
 				} else if err := runSessionECSExec(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp); err != nil {
@@ -198,6 +203,7 @@ On start, --exec-script provisions the task, joins, runs the script, and exits.`
 	cmd.Flags().BoolVar(&flagNoConnect, "no-connect", false, "Provision boundary task and print session metadata; do not open ECS Exec")
 	cmd.Flags().StringVar(&flagExecScript, "exec-script", "", "After connect, run a bash script inside the boundary shell via ECS Exec (runbooks, automation, e2e)")
 	cmd.Flags().DurationVar(&flagExecScriptTimeout, "exec-script-timeout", 10*time.Minute, "Timeout for --exec-script")
+	cmd.Flags().IntVar(&flagExecScriptMaxOutput, "exec-script-max-output", ecsexec.DefaultExecScriptMaxOutput, "Max bytes of --exec-script PTY output captured on the laptop (default 16 MiB; full transcript in CloudWatch)")
 
 	return cmd
 }
@@ -243,6 +249,7 @@ and 'zoa session list'.`,
 func newSessionJoinCommand(opts *GlobalOptions) *cobra.Command {
 	var flagExecScript string
 	var flagExecScriptTimeout time.Duration
+	var flagExecScriptMaxOutput int
 
 	cmd := &cobra.Command{
 		Use:   "join <deployment/session-id>",
@@ -274,6 +281,9 @@ On join, --exec-script runs the script on an existing session (often after 'sess
 			if flagExecScript != "" && opts.OutputFormat == output.FormatJSON {
 				return fmt.Errorf("--exec-script cannot be used with -o json")
 			}
+			if flagExecScript != "" && flagExecScriptMaxOutput <= 0 {
+				return fmt.Errorf("--exec-script-max-output must be positive")
+			}
 
 			c, err := getClient(opts)
 			if err != nil {
@@ -294,7 +304,7 @@ On join, --exec-script runs the script on an existing session (often after 'sess
 			region := sessionJoinRegion(opts, resp)
 			compoundID := FormatSessionID(deployment, rawID)
 			if flagExecScript != "" {
-				if err := runSessionECSExecScript(cmd.Context(), deployment, region, rawID, accessClientForJoin(c), resp, flagExecScript, flagExecScriptTimeout); err != nil {
+				if err := runSessionECSExecScript(cmd.Context(), deployment, region, rawID, accessClientForJoin(c), resp, flagExecScript, flagExecScriptTimeout, flagExecScriptMaxOutput); err != nil {
 					return fmt.Errorf("ECS Exec script: %w", err)
 				}
 				printSessionExecEndedHint(sessionProgressWriter(), deployment, compoundID, resp.Deadline)
@@ -310,6 +320,7 @@ On join, --exec-script runs the script on an existing session (often after 'sess
 
 	cmd.Flags().StringVar(&flagExecScript, "exec-script", "", "Run a bash script inside the boundary shell via ECS Exec")
 	cmd.Flags().DurationVar(&flagExecScriptTimeout, "exec-script-timeout", 10*time.Minute, "Timeout for --exec-script")
+	cmd.Flags().IntVar(&flagExecScriptMaxOutput, "exec-script-max-output", ecsexec.DefaultExecScriptMaxOutput, "Max bytes of --exec-script PTY output captured on the laptop (default 16 MiB; full transcript in CloudWatch)")
 
 	return cmd
 }

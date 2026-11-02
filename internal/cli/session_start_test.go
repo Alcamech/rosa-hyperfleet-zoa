@@ -172,6 +172,24 @@ func TestSessionStart_WhenExecScriptWithJSONOutput_ItShouldRejectBeforeAPI(t *te
 	}
 }
 
+func TestSessionStart_WhenExecScriptMaxOutputNonPositive_ItShouldRejectBeforeAPI(t *testing.T) {
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			t.Fatal("SessionStart should not be called when --exec-script-max-output is invalid")
+			return nil, nil
+		},
+	}
+	root := sessionTestRoot(newMockGlobalOpts(mock))
+	root.SetArgs([]string{
+		"session", "start", "us-east-1", "mc01",
+		"--reason", "TEST-12345", "--exec-script", "true", "--exec-script-max-output", "0",
+	})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected error for --exec-script-max-output 0")
+	}
+}
+
 func sessionTestRoot(opts *GlobalOptions) *cobra.Command {
 	root := &cobra.Command{Use: "zoa"}
 	root.AddCommand(newSessionCommand(opts))

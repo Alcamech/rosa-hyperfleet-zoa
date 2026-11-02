@@ -163,7 +163,7 @@ These apply to **every** subcommand (`session`, `run`, `runs`, `audit`, …). Wh
 
 **Session start:** Access runs the boundary task on start; default CLI flow then joins and opens ECS Exec. **`--no-connect`** (or **`-o json`**) provisions the task and prints session metadata without Exec. **`--exec-script`** provisions, joins, runs a script via Exec, and exits — same audit path as interactive join (see exec-script paragraph below). Use **`zoa session join`** to attach later when you used **`--no-connect`**.
 
-**ECS Exec script (`--exec-script` on `session start` or `session join`):** run a bash script inside the boundary **without** opening an interactive shell on the laptop. The CLI still uses ECS Exec + `session-manager-plugin` (new **exec session id** and CloudWatch stream per run). **Stdout** is the **full Exec PTY transcript** (MOTD, prompts, script output — see [session logging](boundary/session-logging.md)); **stderr** carries progress (`✓ deployment/id [target]`, post-Exec hints). Incompatible with **`-o json`**; on **`session start`**, also incompatible with **`--no-connect`**. See [Operator workflow — exec-script](guides/operator-workflow.md#ecs-exec-script-automation).
+**ECS Exec script (`--exec-script` on `session start` or `session join`):** run a bash script inside the boundary **without** opening an interactive shell on the laptop. The CLI still uses ECS Exec + `session-manager-plugin` (new **exec session id** and CloudWatch stream per run). **Stdout** is the **full Exec PTY transcript** (MOTD, prompts, script output — see [session logging](boundary/session-logging.md)), truncated on the laptop if it exceeds **`--exec-script-max-output`** (default 16 MiB; marker line `__ZOA_EXEC_SCRIPT_TRUNCATED:max=…`; full transcript in CloudWatch); **stderr** carries progress (`✓ deployment/id [target]`, post-Exec hints). Incompatible with **`-o json`**; on **`session start`**, also incompatible with **`--no-connect`**. See [Operator workflow — exec-script](guides/operator-workflow.md#ecs-exec-script-automation).
 
 **Access control (server-side):** the Access Lambda binds each session to the **operator** from your SigV4 identity (IAM role session name). **`session join`** and **`session terminate`** return **403** if you are not the owner. **`session list`** always uses **`scope=mine`** — you only see your own sessions, not another operator's. **`session history`** is the deliberate exception: it lists **all operators** for audit/situational awareness (and those queries are audited). You cannot join someone else's boundary shell even if you know their session id; Exec credentials are vended only after an ownership check. See [Operator workflow — ownership](guides/operator-workflow.md#4-start-session-join-exec-and-ownership) and [Access API — sessions](api-reference.md#get-apiv0sessions).
 
@@ -378,6 +378,7 @@ Per-command flags and filters (global flags are under [Configuration](#global-fl
 | `--no-connect`    |       | Provision boundary task and print session metadata; do not open ECS Exec                                                       |
 | `--exec-script`         |       | After connect, run a bash script via non-interactive ECS Exec (automation/e2e); incompatible with `--no-connect` and `-o json` |
 | `--exec-script-timeout` |       | Max duration for `--exec-script` (default `10m`)                                                                                     |
+| `--exec-script-max-output` |    | Max bytes of exec-script PTY output captured on the laptop (default `16777216`, 16 MiB; full transcript in CloudWatch)              |
 
 ### `session join`
 
@@ -385,6 +386,7 @@ Per-command flags and filters (global flags are under [Configuration](#global-fl
 | ----------------- | ----- | ----------------------------------------------------------------------------------------------- |
 | `--exec-script`         |       | Run a bash script inside the boundary via non-interactive ECS Exec; incompatible with `-o json` |
 | `--exec-script-timeout` |       | Max duration for `--exec-script` (default `10m`)                                                      |
+| `--exec-script-max-output` |    | Max bytes of exec-script PTY output captured on the laptop (default `16777216`, 16 MiB; full transcript in CloudWatch) |
 
 <a id="session-join"></a>
 

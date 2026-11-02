@@ -18,12 +18,15 @@ func runSessionECSExec(ctx context.Context, deployment, region string, zoaSessio
 	return runSessionECSExecMode(ctx, deployment, region, zoaSessionID, access, join, "", 0)
 }
 
-func runSessionECSExecScript(ctx context.Context, deployment, region string, zoaSessionID string, access APIClient, join *client.SessionJoinResponse, script string, timeout time.Duration) error {
+func runSessionECSExecScript(ctx context.Context, deployment, region string, zoaSessionID string, access APIClient, join *client.SessionJoinResponse, script string, timeout time.Duration, maxOutputBytes int) error {
 	if err := ecsexec.RequireSessionManagerPlugin(); err != nil {
 		return err
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
+	}
+	if maxOutputBytes <= 0 {
+		maxOutputBytes = ecsexec.DefaultExecScriptMaxOutput
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -32,9 +35,14 @@ func runSessionECSExecScript(ctx context.Context, deployment, region string, zoa
 	if err != nil {
 		return err
 	}
-	result, err := ecsexec.ConnectExecScript(execCtx, cfg, execScriptJoinParams(ctx, region, zoaSessionID, access, join), script)
+	opts := ecsexec.ExecScriptOptions{MaxOutputBytes: maxOutputBytes}
+	result, err := ecsexec.ConnectExecScript(execCtx, cfg, execScriptJoinParams(ctx, region, zoaSessionID, access, join), script, opts)
 	if writeErr := ecsexec.WriteExecScriptOutput(os.Stdout, result); writeErr != nil {
 		return writeErr
+	}
+	if result.Truncated {
+		fmt.Fprintf(os.Stderr, "Warning: exec-script output exceeded %d bytes; CLI transcript truncated (see %s in stdout). Full transcript is in CloudWatch Exec logs. Split automation into smaller --exec-script runs or raise --exec-script-max-output.\n",
+			maxOutputBytes, ecsexec.ExecScriptTruncatedMarkerPrefix)
 	}
 	return err
 }
@@ -71,7 +79,7 @@ func runSessionECSExecMode(ctx context.Context, deployment, region string, zoaSe
 	}
 
 	if execScript != "" {
-		return runSessionECSExecScript(ctx, deployment, region, zoaSessionID, access, join, execScript, execScriptTimeout)
+		return runSessionECSExecScript(ctx, deployment, region, zoaSessionID, access, join, execScript, execScriptTimeout, ecsexec.DefaultExecScriptMaxOutput)
 	}
 
 	cfg, err := awsConfigFromJoin(ctx, region, join)
