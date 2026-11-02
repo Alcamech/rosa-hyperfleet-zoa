@@ -132,19 +132,52 @@ func TestStreamingHandler_QueryString(t *testing.T) {
 	}
 }
 
+func TestStreamingHandler_IAMAuthorizerCallerARN(t *testing.T) {
+	const caller = "arn:aws:sts::123456789012:assumed-role/eph-regional-zoa-boundary-task/699b33207f394816a9ecf16b6789174e"
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /whoami", func(w http.ResponseWriter, r *http.Request) {
+		arn := AuthenticatedCallerARN(r.Context())
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("caller=" + arn))
+	})
+
+	handler := NewStreamingHandler(mux)
+	resp, err := handler.Handle(context.Background(), events.LambdaFunctionURLRequest{
+		RawPath: "/whoami",
+		RequestContext: events.LambdaFunctionURLRequestContext{
+			HTTP: events.LambdaFunctionURLRequestContextHTTPDescription{
+				Method: "GET",
+			},
+			Authorizer: &events.LambdaFunctionURLRequestContextAuthorizerDescription{
+				IAM: &events.LambdaFunctionURLRequestContextAuthorizerIAMDescription{
+					UserARN:   caller,
+					AccountID: "123456789012",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "caller="+caller {
+		t.Errorf("unexpected body: %s", body)
+	}
+}
+
 func TestStreamingHandler_Headers(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /whoami", func(w http.ResponseWriter, r *http.Request) {
-		op := r.Header.Get("X-Operator")
+		arn := AuthenticatedCallerARN(r.Context())
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("operator=" + op))
+		_, _ = w.Write([]byte("caller=" + arn))
 	})
 
 	handler := NewStreamingHandler(mux)
 	resp, err := handler.Handle(context.Background(), events.LambdaFunctionURLRequest{
 		RawPath: "/whoami",
 		Headers: map[string]string{
-			"x-operator":   "slopezma",
+			"x-operator":   "must-not-trust",
 			"x-account-id": "123456789012",
 		},
 		RequestContext: events.LambdaFunctionURLRequestContext{
@@ -157,7 +190,7 @@ func TestStreamingHandler_Headers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "operator=slopezma" {
+	if string(body) != "caller=" {
 		t.Errorf("unexpected body: %s", body)
 	}
 	_ = resp
