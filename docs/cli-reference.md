@@ -298,6 +298,7 @@ zoa download <exec-id> -f /tmp/output.json
 # JSON output (for piping)
 zoa runs -o json
 zoa get <exec-id> -o json
+# Execution JSON includes session_id only after a boundary-task identity bridge hit; direct zoa run from an allowed invoker omits it.
 
 # Audit (unified trail: TA runs, session_*, and API meta reads)
 zoa audit --limit 20

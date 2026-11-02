@@ -19,7 +19,7 @@ Direct `kubectl` / `oc` against fleet clusters is **not** the production path; u
 2. **`kinit`** — Kerberos ticket for your Red Hat principal.
 3. **`rh-aws-saml-login`** (or team wrapper) — short-lived credentials in the environment’s **Central** AWS account with a **specific hub role** assigned by SAML.
 
-You are **personally identified** on every ZOA call from the laptop: the CLI signs requests with **SigV4** and sends **`X-Operator`** = `sts:GetCallerIdentity().Arn`. For the invoker role, the **STS session name** on that ARN is your username (e.g. `slopezma`). That value becomes **`operator`** on session rows and in audit.
+You are **personally identified** on every ZOA call from the laptop: the CLI signs requests with **SigV4**, and the Access Lambda reads your identity from the **IAM authorizer** (`userArn` on the signed request). For the invoker role, the **STS session name** on that ARN is your username (e.g. `slopezma`). That value becomes **`operator`** on session rows and in audit.
 
 ### 2. Discover deployments (Central SSM)
 
@@ -40,7 +40,7 @@ zoa targets <deployment>
 ```
 
 1. CLI **assumes the invoker role** for that deployment (ARN from Central SSM), with **your username as the STS session name**.
-2. CLI calls the deployment’s **Access Lambda** Function URL (SigV4 + `X-Operator`).
+2. CLI calls the deployment’s **Access Lambda** Function URL (SigV4; caller ARN from IAM authorizer).
 3. Access validates the caller is allowed to invoke the URL, then lists **targets** registered under **`/zoa/targets/<deployment>/`** in the **Regional Cluster (RC) account** Parameter Store.
 
 Each parameter is one boundary-capable cluster: **RC** (`regional`) and **MC** (e.g. `mc01`). SSM layout: [Boundary architecture — Discovery](../boundary/architecture.md#discovery-ssm).
@@ -107,7 +107,7 @@ sequenceDiagram
   ECS->>CW: PTY transcript per exec session id
 
   Note over ECS,EKS: Trusted Action
-  ECS->>API: zoa run SigV4 task role X-Operator task ARN
+  ECS->>API: zoa run SigV4 task role ARN
   API->>DDB: GetByTaskID task id GSI
   DDB-->>API: operator sessionId
   API->>EKS: ephemeral SA impersonation RBAC
@@ -188,7 +188,7 @@ Exec disconnect flushes the **PTY transcript** to CloudWatch (often within **1�
 
 ## Identity and SigV4
 
-ZOA uses **IAM + SigV4** end to end. Every HTTPS call to a ZOA Function URL is signed; AWS **IAM auth on the URL** decides which principals may invoke at all. The **`zoa` CLI** also sends an **`X-Operator`** header set to **`sts:GetCallerIdentity().Arn`** for the **same credentials** used to sign the request — that ARN is how Access and the API Lambda learn _who_ is calling.
+ZOA uses **IAM + SigV4** end to end. Every HTTPS call to a ZOA Function URL is signed; AWS **IAM auth on the URL** decides which principals may invoke at all. Lambda receives the authenticated principal as **`requestContext.authorizer.iam.userArn`** — that ARN is how Access and the API Lambda learn _who_ is calling. The CLI does not send identity in HTTP headers.
 
 **Operator** (for sessions and audit) means your **human SRE username** (e.g. `slopezma`), derived from the **session name** on an assumed-role ARN:
 
@@ -211,14 +211,14 @@ flowchart TB
     Invoker[Access invoker role]
     ExecCreds[Scoped Exec credentials]
     Hub --> Invoker
-    Invoker -->|"SigV4 + X-Operator"| AccessLambda[Access Function URL]
+    Invoker -->|"SigV4"| AccessLambda[Access Function URL]
     AccessLambda -->|"Vend on join"| ExecCreds
     ExecCreds --> Shell[ECS Exec shell]
   end
   subgraph boundary [Boundary Fargate task]
     TaskRole[ECS task role]
     Shell --> TaskRole
-    TaskRole -->|"SigV4 + X-Operator"| APILambda[API Function URL]
+    TaskRole -->|"SigV4"| APILambda[API Function URL]
   end
   AccessLambda --> DDB[(Sessions DynamoDB)]
   APILambda --> DDB

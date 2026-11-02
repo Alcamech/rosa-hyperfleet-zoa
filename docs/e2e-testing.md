@@ -45,7 +45,7 @@ and again as part of the full functional suite.
 **Session plane e2e** (in `test/e2e/`, **`ZOA_DEPLOYMENT_NAME` contains `eph`** until int/stage has **`rrp-central`**):
 
 - **`Label("smoke")`** (consumer **`make test-e2e-smoke`**, **8m** per RC/MC worker): **`zoa deployments`**, **`zoa targets`**, session CLI validation, **`session start --no-connect`** lifecycle (list, history, terminate, list terminated).
-- **Full functional only** (**`make test-e2e`**, **20m** per worker): boundary **`start|join --exec-script`** (Exec, **`claude -p`**, **`zoa run`**, MOTD/PS1/reason/exit hints, **`exec_session_ids`**, **`zoa get`**) and the exec-script failure path.
+- **Full functional only** (**`make test-e2e`**, **20m** per worker): boundary **`start|join --exec-script`** (Exec, **`claude -p`**, **`zoa run`** with **`operator`/`session_id` bridge checks**, MOTD/PS1/reason/exit hints, **`exec_session_ids`**, **`zoa get`**) and the exec-script failure path. TA-plane specs assert **`session_id` absent** on direct **`zoa run`** / **`zoa get`** (worker profile, not boundary).
 
 See [Access boundary sessions](#access-boundary-sessions-zoa-access-e2e).
 

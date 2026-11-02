@@ -13,10 +13,12 @@ Both share the same `/api/v0` prefix, error envelope, and authentication model. 
 
 All requests must be signed with AWS SigV4. Both Lambda Function URLs use `authorization_type = "AWS_IAM"`.
 
-The **`zoa` CLI** sets **`X-Operator`** to `sts:GetCallerIdentity().Arn` for the credentials that signed the request:
+Identity comes from the **IAM authorizer** on each Function URL (`requestContext.authorizer.iam.userArn`). The **`zoa` CLI** does **not** send operator identity in headers; AWS binds the authenticated principal to the request inside Lambda.
 
-- **Access Lambda** — the operator ARN comes from the **invoker** (SRE laptop, assumed via SSM-discovered invoker role). Used for session ownership.
-- **API Lambda** — boundary callers use the **ECS task role**; the server resolves the human **operator** and **session id** via the **identity bridge** (task id in the ARN → DynamoDB session lookup).
+- **Access Lambda** — invoker assumed-role ARN (SRE laptop). Session name on that ARN is the **`operator`** id; used for session ownership.
+- **API Lambda** — boundary **ECS task role** ARN (session name = ECS task id). `ResolveIdentity` looks up **`task_id`** in **`boundary-sessions`** when the caller matches the target’s boundary task role name; see [Identity bridge](boundary/identity-bridge.md). Other SigV4 principals are attributed from the session name on their ARN if IAM policy allows them to invoke the URL.
+
+Caller **AWS account id** for audit and DynamoDB keys comes from the same authorizer (`accountId`, or parsed from `userArn`). There are **no** custom identity headers (`X-Operator`, `X-Account-ID`, etc.). JSON requests use `Content-Type: application/json` only.
 
 See [Operator workflow — Identity and SigV4](guides/operator-workflow.md#identity-and-sigv4).
 
@@ -37,13 +39,6 @@ https://<api-function-url-id>.lambda-url.<region>.on.aws
 ```
 
 Each target VPC (RC or MC) has its own API Lambda. Inside the boundary, `ZOA_API_URL` is pre-set by the task definition. Operators never set this URL manually either.
-
-### Common headers
-
-| Header         | Required | Description                                                                          |
-| -------------- | -------- | ------------------------------------------------------------------------------------ |
-| `X-Account-ID` | Yes      | AWS account ID of the caller (set by CLI from STS)                                   |
-| `X-Operator`   | Yes      | Caller ARN from `GetCallerIdentity` (API: identity bridge maps task role → operator) |
 
 ---
 
@@ -128,17 +123,17 @@ On success, Access has already called `ecs:RunTask` for the boundary container i
 
 ### Error Responses
 
-| Code | Reason                 | Description                                    |
-| ---- | ---------------------- | ---------------------------------------------- |
-| 400  | `invalid_identity`     | Cannot extract SRE identity from `X-Operator`  |
-| 400  | `invalid_request`      | Invalid JSON body                              |
-| 400  | `missing_target`       | Target field is required                       |
-| 400  | `missing_reason`       | Reason is required                             |
-| 400  | `invalid_reason`       | Reason format invalid (must be Jira/PD format) |
-| 400  | `invalid_timeout`      | Timeout exceeds configured maximum             |
-| 404  | `target_not_found`     | Target not registered                          |
-| 502  | `ecs_error`            | Boundary `RunTask` failed                      |
-| 500  | `session_update_error` | Task started but session state update failed   |
+| Code | Reason                 | Description                                               |
+| ---- | ---------------------- | --------------------------------------------------------- |
+| 400  | `invalid_identity`     | Cannot extract SRE identity from authenticated caller ARN |
+| 400  | `invalid_request`      | Invalid JSON body                                         |
+| 400  | `missing_target`       | Target field is required                                  |
+| 400  | `missing_reason`       | Reason is required                                        |
+| 400  | `invalid_reason`       | Reason format invalid (must be Jira/PD format)            |
+| 400  | `invalid_timeout`      | Timeout exceeds configured maximum                        |
+| 404  | `target_not_found`     | Target not registered                                     |
+| 502  | `ecs_error`            | Boundary `RunTask` failed                                 |
+| 500  | `session_update_error` | Task started but session state update failed              |
 
 ---
 
@@ -223,12 +218,12 @@ Join an **active** session that already has a boundary task (`task_arn` set on `
 
 ### Error Responses
 
-| Code | Reason                 | Description                                  |
-| ---- | ---------------------- | -------------------------------------------- |
-| 403  | `forbidden`            | Only the session owner can join              |
-| 404  | `not_found`            | Session not found                            |
-| 409  | `invalid_status`       | Session is not `active`                      |
-| 409  | `session_not_ready`    | Boundary task not provisioned (retry start)  |
+| Code | Reason              | Description                                 |
+| ---- | ------------------- | ------------------------------------------- |
+| 403  | `forbidden`         | Only the session owner can join             |
+| 404  | `not_found`         | Session not found                           |
+| 409  | `invalid_status`    | Session is not `active`                     |
+| 409  | `session_not_ready` | Boundary task not provisioned (retry start) |
 
 ---
 
@@ -406,16 +401,16 @@ Execute a Trusted Action. Called from inside the boundary via `zoa run`.
 
 ### Error Responses
 
-| Code | Reason                              | Description                                           |
-| ---- | ----------------------------------- | ----------------------------------------------------- |
-| 400  | `invalid_body`                      | Request body parse failure                            |
-| 400  | `invalid_params`                    | Missing required param or unknown param               |
-| 400  | `missing_reason` / `invalid_reason` | Reason missing or format invalid                      |
-| 400  | `missing_account`                   | `X-Account-ID` header missing                         |
-| 400  | `timeout_exceeded`                  | Requested timeout exceeds server maximum              |
-| 404  | `action_not_found`                  | TA not registered                                     |
-| 429  | `write_cooldown`                    | Write action executed too recently (use `force=true`) |
-| 429  | `max_concurrent`                    | Too many active executions on target                  |
+| Code | Reason                              | Description                                                   |
+| ---- | ----------------------------------- | ------------------------------------------------------------- |
+| 400  | `invalid_body`                      | Request body parse failure                                    |
+| 400  | `invalid_params`                    | Missing required param or unknown param                       |
+| 400  | `missing_reason` / `invalid_reason` | Reason missing or format invalid                              |
+| 401  | `unauthenticated`                   | Request reached handler without SigV4 IAM authorizer identity |
+| 400  | `timeout_exceeded`                  | Requested timeout exceeds server maximum                      |
+| 404  | `action_not_found`                  | TA not registered                                             |
+| 429  | `write_cooldown`                    | Write action executed too recently (use `force=true`)         |
+| 429  | `max_concurrent`                    | Too many active executions on target                          |
 
 ---
 

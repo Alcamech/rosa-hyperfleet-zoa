@@ -29,7 +29,7 @@ The boundary is the shell. Everything else happens inside it.
 | ------------------------------------------------------------- | ---------------------------------------------------------- |
 | [ZOA Boundary — architecture](boundary/architecture.md)       | Control plane, **SSM topology** (Central vs RC), lifecycle |
 | [ZOA Boundary — container image](boundary/container-image.md) | `Containerfile.boundary`, Konflux pipeline                 |
-| [ZOA Boundary — identity bridge](boundary/identity-bridge.md) | Task ARN → session → human operator (TA attribution)       |
+| [ZOA Boundary — identity bridge](boundary/identity-bridge.md) | Task ARN → session → **`operator`** (TA attribution)       |
 | [ZOA Boundary — session logging](boundary/session-logging.md) | CloudWatch log groups, Grafana Explorer forensics          |
 | [ZOA Boundary — session reaper](boundary/session-reaper.md)   | Deadline, stale `creating`, idle, and operator terminate   |
 
