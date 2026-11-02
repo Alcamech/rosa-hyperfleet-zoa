@@ -34,7 +34,7 @@ $(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod
 $(GINKGO): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(abspath $(TOOLS_BIN_DIR))/ginkgo github.com/onsi/ginkgo/v2/ginkgo
 
-VERSION     = 0.5.2
+VERSION     = 0.5.3
 VERSION_PKG = github.com/openshift-online/rosa-seaplane-zoa/internal/version
 VERSION_LDFLAGS = -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS         = -ldflags "$(VERSION_LDFLAGS)"
@@ -158,8 +158,8 @@ test-e2e: build $(GINKGO)
 	$(call run_e2e_monitoring)
 
 # test-e2e-smoke runs only specs with Label("smoke") — fast path for rosa-seaplane/-api presubmits.
-# Includes core TA checks and Access boundary session specs (when ZOA_DEPLOYMENT_NAME contains eph).
-# Those Access specs also run under test-e2e / test-e2e-zoa (full functional, no label filter).
+# Includes core TA checks and Access laptop session specs (deployments, targets, session lifecycle when eph).
+# Boundary exec-script e2e is full-only (make test-e2e / test-e2e-zoa, no smoke label).
 test-e2e-smoke: build $(GINKGO)
 	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="

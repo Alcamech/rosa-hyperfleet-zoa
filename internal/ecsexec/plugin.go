@@ -15,11 +15,38 @@ const sessionManagerPlugin = "session-manager-plugin"
 
 var execSessionManagerPlugin = syscall.Exec
 
+// NewSessionManagerPluginCommand builds a session-manager-plugin command for subprocess use (exec-script ECS Exec).
+func NewSessionManagerPluginCommand(region string, session *Session, creds aws.Credentials) (*exec.Cmd, error) {
+	pluginPath, args, err := sessionManagerPluginArgs(region, session)
+	if err != nil {
+		return nil, err
+	}
+	env, err := pluginEnv(region, creds)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(pluginPath, args[1:]...) //nolint:gosec // argv built from ECS ExecuteCommand response
+	cmd.Env = env
+	return cmd, nil
+}
+
 // StartSessionManagerPlugin hands the terminal to session-manager-plugin (process replace).
 func StartSessionManagerPlugin(region string, session *Session, creds aws.Credentials) error {
-	pluginPath, err := exec.LookPath(sessionManagerPlugin)
+	pluginPath, args, err := sessionManagerPluginArgs(region, session)
 	if err != nil {
-		return fmt.Errorf(
+		return err
+	}
+	env, err := pluginEnv(region, creds)
+	if err != nil {
+		return err
+	}
+	return execSessionManagerPlugin(pluginPath, args, env)
+}
+
+func sessionManagerPluginArgs(region string, session *Session) (pluginPath string, args []string, err error) {
+	pluginPath, err = exec.LookPath(sessionManagerPlugin)
+	if err != nil {
+		return "", nil, fmt.Errorf(
 			"session-manager-plugin not found in PATH.\n"+
 				"Install: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html\n"+
 				"Original error: %w", err)
@@ -32,7 +59,7 @@ func StartSessionManagerPlugin(region string, session *Session, creds aws.Creden
 		paramsJSON = string(params)
 	}
 
-	args := []string{
+	args = []string{
 		pluginPath,
 		string(session.RawSession),
 		region,
@@ -41,12 +68,7 @@ func StartSessionManagerPlugin(region string, session *Session, creds aws.Creden
 		paramsJSON,
 		ssmEndpoint,
 	}
-
-	env, err := pluginEnv(region, creds)
-	if err != nil {
-		return err
-	}
-	return execSessionManagerPlugin(pluginPath, args, env)
+	return pluginPath, args, nil
 }
 
 func pluginEnv(region string, creds aws.Credentials) ([]string, error) {

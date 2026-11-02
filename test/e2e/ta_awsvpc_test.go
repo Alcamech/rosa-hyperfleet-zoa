@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("VPC endpoint aws-api actions", func() {
+var _ = Describe("zoa run VPC endpoint aws-api actions", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

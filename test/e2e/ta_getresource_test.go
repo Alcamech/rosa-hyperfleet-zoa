@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("get_resource", func() {
+var _ = Describe("zoa run get_resource", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

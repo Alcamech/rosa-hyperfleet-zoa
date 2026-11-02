@@ -10,39 +10,96 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/onsi/ginkgo/v2"
 )
+
+const sessionManagerPluginDir = "/usr/local/sessionmanagerplugin/bin"
 
 var (
 	centralProfile = envOrDefault("ZOA_CENTRAL_AWS_PROFILE", "rrp-central")
 
-	accessDeployOnce sync.Once
-	accessDeployment string
-	accessDeployErr  error
+	sessionDeployOnce sync.Once
+	sessionDeployment string
+	sessionDeployErr  error
 )
+
+func init() {
+	// Ginkgo/check helpers run before subprocess zoa calls; match ci/e2e-tests.sh PATH.
+	_ = os.Setenv("PATH", e2ePathWithSessionManagerPlugin())
+}
+
+// e2ePathWithSessionManagerPlugin matches ci/e2e-tests.sh so boundary exec-script
+// smoke finds session-manager-plugin in the rosa-seaplane CI image (and local
+// installs that only symlink into /usr/local/sessionmanagerplugin/bin).
+func e2ePathWithSessionManagerPlugin() string {
+	path := os.Getenv("PATH")
+	if path == "" {
+		return sessionManagerPluginDir + ":/usr/bin:/usr/local/bin"
+	}
+	if strings.Contains(path, sessionManagerPluginDir) {
+		return path
+	}
+	return sessionManagerPluginDir + ":" + path
+}
 
 // zoaDeploymentName returns ZOA_DEPLOYMENT_NAME (required for every e2e run).
 func zoaDeploymentName() string {
 	return strings.TrimSpace(os.Getenv("ZOA_DEPLOYMENT_NAME"))
 }
 
-// accessE2EEnabled gates Access-plane smoke (central AWS profile: deployments, targets, session).
+const sessionE2ESkipMessage = "Session e2e skipped: ZOA_DEPLOYMENT_NAME must contain eph until int/stage CI has central credentials (temporary gate)"
+
+// sessionE2EEnabled gates session-plane e2e (central profile: deployments, targets, session, exec-script).
 //
 // TEMPORARY: return true only when ZOA_DEPLOYMENT_NAME contains "eph". Ephemeral CI already
 // ships Vault aws_config with rrp-central and Terraform central invoker trust for the build;
 // integration/stage standing jobs do not yet assume that central credential path from CI
 // (GSM/Vault aws_config + operator profile parity). Names
-// like us-east-1 still export ZOA_DEPLOYMENT_NAME for suite wiring but skip Access specs until
+// like us-east-1 still export ZOA_DEPLOYMENT_NAME for suite wiring but skip session specs until
 // we can run the same smoke on nightly-integration/stage without the substring gate.
 //
 // Remove the strings.Contains(..., "eph") check once standing-env e2e mounts central creds.
-func accessE2EEnabled() bool {
+func sessionE2EEnabled() bool {
 	name := zoaDeploymentName()
 	return name != "" && strings.Contains(strings.ToLower(name), "eph")
 }
 
-// accessTargetIDForType picks the SSM target_id for this worker by target_type
+func skipUnlessSessionE2E() {
+	if !sessionE2EEnabled() {
+		ginkgo.Skip(sessionE2ESkipMessage)
+	}
+}
+
+// sessionE2EContext holds deployment and target_id for this RC/MC worker.
+type sessionE2EContext struct {
+	Deployment string
+	TargetID   string
+}
+
+func resolveSessionE2EContext(targetType string) (sessionE2EContext, error) {
+	dep, err := resolveSessionDeployment()
+	if err != nil {
+		return sessionE2EContext{}, err
+	}
+	tgtOut, err := runZoaAccess("targets", dep, "-o", "json")
+	if err != nil {
+		return sessionE2EContext{}, fmt.Errorf("zoa targets: %w\n%s", err, tgtOut)
+	}
+	rows, err := parseSessionTargetsJSON(tgtOut)
+	if err != nil {
+		return sessionE2EContext{}, err
+	}
+	targetID, err := sessionTargetIDForType(rows, targetType)
+	if err != nil {
+		return sessionE2EContext{}, fmt.Errorf("targets for %s: %w (%v)", targetType, err, rows)
+	}
+	return sessionE2EContext{Deployment: dep, TargetID: targetID}, nil
+}
+
+// sessionTargetIDForType picks the SSM target_id for this worker by target_type
 // (rc/mc), regardless of target_id naming (eph-*, regional, mc01, etc.).
-func accessTargetIDForType(rows []accessTargetRow, targetType string) (string, error) {
+func sessionTargetIDForType(rows []sessionTargetRow, targetType string) (string, error) {
 	want := strings.ToLower(targetType)
 	var matches []string
 	for _, row := range rows {
@@ -60,42 +117,44 @@ func accessTargetIDForType(rows []accessTargetRow, targetType string) (string, e
 	}
 }
 
+// runZoaAccess runs zoa with ZOA_CENTRAL_AWS_PROFILE (deployments, targets, session subcommands).
 func runZoaAccess(args ...string) (string, error) {
 	cmd := exec.Command(zoaBin, args...) //nolint:gosec // test helper
-	cmd.Env = append(filterEnv(os.Environ(), "AWS_PROFILE", "ZOA_API_URL"),
+	cmd.Env = append(filterEnv(os.Environ(), "AWS_PROFILE", "ZOA_API_URL", "PATH"),
 		"AWS_PROFILE="+centralProfile,
+		"PATH="+e2ePathWithSessionManagerPlugin(),
 	)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
-// runZoaAccessExpectFailure runs the Access CLI path and expects a non-zero exit.
+// runZoaAccessExpectFailure runs zoa with the central profile and expects a non-zero exit.
 func runZoaAccessExpectFailure(args ...string) (string, error) {
 	out, err := runZoaAccess(args...)
 	if err == nil {
-		return out, fmt.Errorf("expected zoa access command to fail: %v", args)
+		return out, fmt.Errorf("expected zoa command to fail: %v", args)
 	}
 	return out, nil
 }
 
-func resolveAccessDeployment() (string, error) {
-	accessDeployOnce.Do(func() {
+func resolveSessionDeployment() (string, error) {
+	sessionDeployOnce.Do(func() {
 		name := zoaDeploymentName()
 		if name == "" {
-			accessDeployErr = fmt.Errorf("ZOA_DEPLOYMENT_NAME is not set")
+			sessionDeployErr = fmt.Errorf("ZOA_DEPLOYMENT_NAME is not set")
 			return
 		}
-		accessDeployment = name
+		sessionDeployment = name
 	})
-	return accessDeployment, accessDeployErr
+	return sessionDeployment, sessionDeployErr
 }
 
-type accessTargetListJSON struct {
-	Items []accessTargetRow `json:"items"`
-	Count int               `json:"count"`
+type sessionTargetListJSON struct {
+	Items []sessionTargetRow `json:"items"`
+	Count int                `json:"count"`
 }
 
-type accessTargetRow struct {
+type sessionTargetRow struct {
 	TargetID   string `json:"target_id"`
 	TargetType string `json:"target_type"`
 	Status     string `json:"status"`
@@ -138,8 +197,8 @@ type sessionRow struct {
 	ExecSessionIDs []string `json:"exec_session_ids"`
 }
 
-func parseAccessTargetsJSON(output string) ([]accessTargetRow, error) {
-	var resp accessTargetListJSON
+func parseSessionTargetsJSON(output string) ([]sessionTargetRow, error) {
+	var resp sessionTargetListJSON
 	if err := json.Unmarshal([]byte(extractJSON(output)), &resp); err != nil {
 		return nil, err
 	}
@@ -162,7 +221,7 @@ func parseSessionListJSON(output string) ([]sessionRow, error) {
 	return resp.Items, nil
 }
 
-func findAccessTargetRow(rows []accessTargetRow, targetID string) *accessTargetRow {
+func findSessionTargetRow(rows []sessionTargetRow, targetID string) *sessionTargetRow {
 	for i := range rows {
 		if rows[i].TargetID == targetID {
 			return &rows[i]
@@ -171,10 +230,10 @@ func findAccessTargetRow(rows []accessTargetRow, targetID string) *accessTargetR
 	return nil
 }
 
-func findSessionForTarget(rows []sessionRow, rawID, accessTarget string) *sessionRow {
+func findSessionForTarget(rows []sessionRow, rawID, targetID string) *sessionRow {
 	for i := range rows {
 		row := &rows[i]
-		if row.TargetCluster != accessTarget {
+		if row.TargetCluster != targetID {
 			continue
 		}
 		if row.SessionID == rawID || strings.HasSuffix(row.SessionID, "/"+rawID) || strings.Contains(row.SessionID, rawID) {
@@ -208,10 +267,10 @@ func requireARN(field, value, prefix string) error {
 	return nil
 }
 
-// validateActiveSessionRecord asserts every field Access should populate for an active
+// validateActiveSessionRecord asserts every field the session API should populate for an active
 // boundary session after start (--no-connect). Catches API/CLI regressions that drop
 // audit or provisioning metadata from list/history JSON.
-func validateActiveSessionRecord(row sessionRow, accessTarget, rawID, wantReason string) error {
+func validateActiveSessionRecord(row sessionRow, targetID, rawID, wantReason string) error {
 	checks := []func() error{
 		func() error {
 			if row.SessionID != rawID {
@@ -229,8 +288,8 @@ func validateActiveSessionRecord(row sessionRow, accessTarget, rawID, wantReason
 			return nil
 		},
 		func() error {
-			if row.TargetCluster != accessTarget {
-				return fmt.Errorf("target_cluster: got %q want %q", row.TargetCluster, accessTarget)
+			if row.TargetCluster != targetID {
+				return fmt.Errorf("target_cluster: got %q want %q", row.TargetCluster, targetID)
 			}
 			return nil
 		},
@@ -267,7 +326,7 @@ func validateActiveSessionRecord(row sessionRow, accessTarget, rawID, wantReason
 }
 
 // validateTerminatedSessionRecord asserts list/history fields after operator terminate.
-func validateTerminatedSessionRecord(row sessionRow, accessTarget, rawID, wantReason string) error {
+func validateTerminatedSessionRecord(row sessionRow, targetID, rawID, wantReason string) error {
 	checks := []func() error{
 		func() error {
 			if row.SessionID != rawID {
@@ -285,8 +344,8 @@ func validateTerminatedSessionRecord(row sessionRow, accessTarget, rawID, wantRe
 			return nil
 		},
 		func() error {
-			if row.TargetCluster != accessTarget {
-				return fmt.Errorf("target_cluster: got %q want %q", row.TargetCluster, accessTarget)
+			if row.TargetCluster != targetID {
+				return fmt.Errorf("target_cluster: got %q want %q", row.TargetCluster, targetID)
 			}
 			return nil
 		},
@@ -318,15 +377,15 @@ func validateTerminatedSessionRecord(row sessionRow, accessTarget, rawID, wantRe
 	return nil
 }
 
-func validateSessionStartResponse(started *sessionStartJSON, deployment, accessTarget, rawID string) error {
+func validateSessionStartResponse(started *sessionStartJSON, deployment, targetID, rawID string) error {
 	if started.RawID != rawID {
 		return fmt.Errorf("raw_id: got %q want %q", started.RawID, rawID)
 	}
 	if started.Deployment != deployment {
 		return fmt.Errorf("deployment: got %q want %q", started.Deployment, deployment)
 	}
-	if !strings.EqualFold(started.Target, accessTarget) {
-		return fmt.Errorf("target: got %q want %q", started.Target, accessTarget)
+	if !strings.EqualFold(started.Target, targetID) {
+		return fmt.Errorf("target: got %q want %q", started.Target, targetID)
 	}
 	if err := requireARN("task_arn", started.TaskArn, "arn:aws:ecs:"); err != nil {
 		return err

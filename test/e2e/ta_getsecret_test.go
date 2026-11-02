@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("get_secret", func() {
+var _ = Describe("zoa run get_secret", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

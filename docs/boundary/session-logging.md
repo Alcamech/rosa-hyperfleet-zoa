@@ -2,9 +2,9 @@
 
 Boundary sessions produce **two audit layers**:
 
-| Layer                       | Store                                  | Use for                                                                                                |
-| --------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **ECS Exec PTY transcript** | CloudWatch Logs (`ssm-sessions` group) | Shell forensics: commands typed, `zoa run` stdout in the session, Claude TUI output                    |
+| Layer                       | Store                                  | Use for                                                                                       |
+| --------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **ECS Exec PTY transcript** | CloudWatch Logs (`ssm-sessions` group) | Shell forensics: commands typed, `zoa run` stdout in the session, Claude TUI output           |
 | **ZOA application audit**   | DynamoDB **audit** + **executions**    | TA dispatch proof, parameters, operator attribution via [identity bridge](identity-bridge.md) |
 
 `zoa run` is recorded in DynamoDB **even if** Exec logging fails. Use **`zoa runs`** / **`zoa audit`** for TA detail; use CloudWatch for interactive shell evidence.
@@ -13,10 +13,10 @@ Boundary sessions produce **two audit layers**:
 
 Both groups use the **same KMS CMK** as other ZOA resources (shared key on RC; per-cluster key on MC when Terraform does not pass `kms_key_arn`). **Retention** is at least **365 days** (`max(365, boundary_log_retention_days)` in `terraform/modules/zoa-lambda/boundary-ecs.tf`).
 
-| Purpose               | Log group                                     | Stream naming                           | Contents                                                                                                           |
-| --------------------- | --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Container stdout**  | `/ecs/<cluster_id>/zoa-boundary`              | `container/zoa-boundary/<task-id>`      | Entrypoint only: banner, tool checks, “ready for connections”.                                                     |
-| **ECS Exec sessions** | `/ecs/<cluster_id>/zoa-boundary/ssm-sessions` | `ecs-execute-command-<exec-session-id>` | One stream **per Exec join** (each `zoa session join`); shared log group across all boundary tasks on that cluster |
+| Purpose               | Log group                                     | Stream naming                           | Contents                                                                                                                                                               |
+| --------------------- | --------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Container stdout**  | `/ecs/<cluster_id>/zoa-boundary`              | `container/zoa-boundary/<task-id>`      | Entrypoint only: banner, tool checks, “ready for connections”.                                                                                                         |
+| **ECS Exec sessions** | `/ecs/<cluster_id>/zoa-boundary/ssm-sessions` | `ecs-execute-command-<exec-session-id>` | One stream **per Exec join** (each `zoa session join` or **`session start --exec-script`** / **`join --exec-script`**); shared log group across all boundary tasks on that cluster |
 
 `<cluster_id>` is the Seaplane cluster id (`regional_id` on RC, `management_id` on MC).
 
@@ -29,6 +29,7 @@ FedRAMP AU-09: dedicated exec log group, KMS encryption, `cloudWatchEncryptionEn
 ## What Exec PTY logging captures
 
 - Interactive shell input and output (including `zoa run` printed in the session).
+- **`session … --exec-script`**: same PTY capture as interactive Exec (MOTD, prompts, plugin banners, plus the automation script). Exec-script stdout on the laptop is this full transcript, not a minimal script-only log.
 - **Claude Code** TUI: partial terminal capture; model payloads are **not** in Exec logs. Optional [Bedrock model invocation logging](https://docs.aws.amazon.com/bedrock/latest/userguide/model-invocation-logging.html) (metadata only) is separate account-level configuration in Seaplane Bedrock modules.
 
 ## Platform requirements (why the image matters)

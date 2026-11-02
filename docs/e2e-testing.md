@@ -8,10 +8,10 @@ from a PR into that environment.
 
 ZOA has two independent test suites that compose via Makefile targets:
 
-| Suite          | Path                   | What it validates                                                     | Requires                                 |
-| -------------- | ---------------------- | --------------------------------------------------------------------- | ---------------------------------------- |
-| **Functional** | `test/e2e/`            | ZOA CLI, Trusted Actions, Access boundary sessions (per RC/MC worker), executor, RBAC, cooldown, audit | `ZOA_RC_API_URL` and/or `ZOA_MC_API_URL`; **`ZOA_DEPLOYMENT_NAME`** (required); Access specs when name contains `eph` + `ZOA_CENTRAL_AWS_PROFILE` (default `rrp-central`) |
-| **Monitoring** | `test/e2e-monitoring/` | Observability pipeline — metrics in Thanos, recording rules, alerts   | `RHOBS_API_URL` (required)               |
+| Suite          | Path                   | What it validates                                                                               | Requires                                                                                                                                                                   |
+| -------------- | ---------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Functional** | `test/e2e/`            | ZOA CLI, Trusted Actions, session plane e2e (per RC/MC worker), executor, RBAC, cooldown, audit | `ZOA_RC_API_URL` and/or `ZOA_MC_API_URL`; **`ZOA_DEPLOYMENT_NAME`** (required); session specs when name contains `eph` + `ZOA_CENTRAL_AWS_PROFILE` (default `rrp-central`) |
+| **Monitoring** | `test/e2e-monitoring/` | Observability pipeline — metrics in Thanos, recording rules, alerts                             | `RHOBS_API_URL` (required)                                                                                                                                                 |
 
 Both suites use **Ginkgo labels** to choose which specs a Makefile target runs:
 
@@ -42,15 +42,12 @@ functional tests only.
 reads, `rollout_restart` dry-run, one async `--wait`. These run on consumer PRs (smoke filter)
 and again as part of the full functional suite.
 
-**Access boundary sessions** (`test/e2e/cmd_access_test.go` — first functional e2e for
-deployments/targets autodiscovery and session lifecycle): central profile (`zoa deployments`,
-`zoa targets`, `session start --no-connect`, list, history, terminate, CLI validation). Specs
-are **`Label("smoke")`** so ephemeral consumer presubmits get the same coverage you validate
-manually with `make test-e2e-smoke`; they are **not smoke-only** — `make test-e2e` /
-`make test-e2e-zoa` and ZOA nightlies run them too. Access specs run only when
-**`ZOA_DEPLOYMENT_NAME` contains `eph`** (ephemeral CI today). Integration/stage set the name
-(e.g. `us-east-1`) but **skip** Access until CI mounts **`rrp-central`** (temporary gate;
-see `accessE2EEnabled` in `test/e2e/access_helpers_test.go`).
+**Session plane e2e** (in `test/e2e/`, **`ZOA_DEPLOYMENT_NAME` contains `eph`** until int/stage has **`rrp-central`**):
+
+- **`Label("smoke")`** (consumer **`make test-e2e-smoke`**, **8m** per RC/MC worker): **`zoa deployments`**, **`zoa targets`**, session CLI validation, **`session start --no-connect`** lifecycle (list, history, terminate, list terminated).
+- **Full functional only** (**`make test-e2e`**, **20m** per worker): boundary **`start|join --exec-script`** (Exec, **`claude -p`**, **`zoa run`**, MOTD/PS1/reason/exit hints, **`exec_session_ids`**, **`zoa get`**) and the exec-script failure path.
+
+See [Access boundary sessions](#access-boundary-sessions-zoa-access-e2e).
 
 **Full functional** (beyond the smoke subset): every registered Trusted Action, both scopes (`kube-api`/`aws-api`),
 read+write+dry-run, sync+async, RC and MC, real (non-dry-run) `delete_pod`/`rollout_restart`
@@ -94,12 +91,12 @@ your code changes.
 
 ### Image Naming Reference
 
-| Source | Image Tag Format | Registry |
-|--------|------------------|----------|
-| **PR builds** (Tekton) | `on-pr-<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
-| **Main branch** (Tekton) | `<commit-sha>` | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
-| **Dev builds** (local) | `latest` or `<commit-sha>` | `quay.io/rrp-dev-ci/zoa-lambda` |
-| **Manual** | Any tag you choose | Your quay.io namespace |
+| Source                   | Image Tag Format           | Registry                                                             |
+| ------------------------ | -------------------------- | -------------------------------------------------------------------- |
+| **PR builds** (Tekton)   | `on-pr-<commit-sha>`       | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
+| **Main branch** (Tekton) | `<commit-sha>`             | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-lambda` |
+| **Dev builds** (local)   | `latest` or `<commit-sha>` | `quay.io/rrp-dev-ci/zoa-lambda`                                      |
+| **Manual**               | Any tag you choose         | Your quay.io namespace                                               |
 
 PR images expire after 5 days. Main-branch and dev images persist indefinitely.
 
@@ -224,7 +221,7 @@ need the tests to use your branch (via `ZOA_REF`).
 | Scenario                        | Image management                                                                          |
 | ------------------------------- | ----------------------------------------------------------------------------------------- |
 | **CI `on-demand-e2e`** (ZOA PR) | Automatic — ci-operator builds images, pushes to Quay, and overrides config before deploy |
-| **CI `nightly-ephemeral`**      | None — tests whatever tags are already pinned in `rosa-seaplane@main` config            |
+| **CI `nightly-ephemeral`**      | None — tests whatever tags are already pinned in `rosa-seaplane@main` config              |
 | **Local dev testing**           | **Manual** — you build, push, configure, and resync (steps above)                         |
 
 ## Running the Tests
@@ -393,21 +390,89 @@ This ensures:
 
 ### Credential Setup per Scenario
 
-| Scenario                                                 | Who manages credentials                                                                                                                              |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scenario                                               | Who manages credentials                                                                                                                              |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make ephemeral-zoa-e2e ID=...` (from `rosa-seaplane`) | Automatic — `ephemeral-env.sh` maps your host profiles → `rrp-rc`/`rrp-mc` inside the container                                                      |
-| `make test-e2e` (from this repo directly)                | Manual — set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` and `ZOA_MC_AWS_PROFILE=rrp-management-dev`                                                       |
-| CI (`nightly-ephemeral`, `on-demand-e2e`)                | Automatic — Vault `aws_config` includes `rrp-central`, `rrp-rc`, and `rrp-mc`; today's Lambda e2e uses only `rrp-rc`/`rrp-mc` (direct Function URLs) |
+| `make test-e2e` (from this repo directly)              | Manual — set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` and `ZOA_MC_AWS_PROFILE=rrp-management-dev`                                                       |
+| CI (`nightly-ephemeral`, `on-demand-e2e`)              | Automatic — Vault `aws_config` includes `rrp-central`, `rrp-rc`, and `rrp-mc`; today's Lambda e2e uses only `rrp-rc`/`rrp-mc` (direct Function URLs) |
 
-### Access boundary sessions (`test/e2e/`)
+### Access boundary sessions (ZOA Access e2e)
 
-Operator path: `ZOA_CENTRAL_AWS_PROFILE` (default `rrp-central`) and **`ZOA_DEPLOYMENT_NAME`**
-(required — same as the suite configuration check). Specs **skip** when the deployment name
-does not contain **`eph`** — temporary until int/stage nightlies ship central `aws_config` and
-we drop the substring check. Each parallel RC/MC worker validates session lifecycle for its
-target (`regional` vs `mc01`).
+The functional suite already covers **Trusted Actions** from the RC/MC API profile (`zoa run` against
+Lambda URLs). **Session-plane e2e** adds proof that an **SRE operator workflow through ZOA Access**
+works end to end: discover deployments and targets from the laptop, start and audit sessions, tear
+them down, and — in a second ordered chain — do what a human does after **`zoa session join`**: Exec
+into the boundary, run tooling and **`zoa run`** against the session cluster, reconnect, and leave an
+audit trail Access can list.
 
-Invoker trust in CI ephemeral must include central role **`ci`** (Terraform `ci=true` on render).
+Implementation detail lives in **`test/e2e/`** (spec names and scripts). This section covers **intent**,
+**when tests run**, **exec-script harness markers**, and **how to extend** coverage without duplicating the suite.
+
+#### What we are trying to prove
+
+**Laptop (central profile, smoke):** **`zoa deployments`** / **`zoa targets`** autodiscovery;
+**`session start --no-connect`**; validation errors for bad **`--reason`** or unknown target;
+**`session list`**, **`session history`**, **`session terminate`**, list after terminate.
+
+**Inside the boundary (Exec script, full suite only):** **`session start --exec-script`** runs a real operator script
+(bootstrap checks, **`claude -p`**, sync **`zoa run`**); **`join --exec-script`** opens a **second** Exec on
+the **same** session and checks MOTD, PS1, reason, and post-Exec hints; **`session list`** shows two
+**`exec_session_ids`**; **`zoa get`** from the RC/MC worker profile sees the TA execution; **`terminate`**
+cleans up. Also **`join --exec-script 'false'`** after **`start --no-connect -o json`** (non-zero CLI exit).
+
+Each parallel Ginkgo worker (RC vs MC) runs the same stories against its target (`regional` vs `mc01`).
+**`session start|join --exec-script`** avoids an interactive PTY on the CI runner; the behavior under test is
+still “SRE inside the boundary task.” Session id format and CLI output for automation are in
+[CLI reference](cli-reference.md#session-join) and [operator workflow](guides/operator-workflow.md).
+
+#### When these specs run
+
+| Gate                                     | Behavior                                                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **`ZOA_CENTRAL_AWS_PROFILE`**            | Default **`rrp-central`** — Access/session commands, not RC/MC Lambda URLs.                                 |
+| **`ZOA_DEPLOYMENT_NAME` contains `eph`** | Temporary skip outside ephemeral CI until int/stage ship central **`aws_config`**.                          |
+| **`session-manager-plugin` on `PATH`**   | Required for exec-script; consumer CI image installs the plugin under `/usr/local/sessionmanagerplugin/bin`. |
+| **CI ephemeral invoker**                 | Central role **`ci`** must be trusted (Terraform **`ci=true`** on render).                                  |
+| **Ordering**                             | Exec (full): per target, ordered start → join → list → get → terminate. Laptop session specs ordered within their Describe. |
+
+Exec script chain (**full functional only**): **`start --exec-script`** → **`join --exec-script`** → **`session list`**
+(two exec ids) → **`zoa get`** → **`terminate`**. Tests use CLI **`--exec-script-timeout`** **`5m`** / **`2m`**
+(start vs reconnect). Suite ceilings: **`make test-e2e-smoke`** **8m**, **`make test-e2e`** **20m** per RC/MC worker (Makefile).
+
+#### Why harness markers exist (`__ZOA_E2E_*__`)
+
+**`session … --exec-script`** attaches a PTY. MOTD, **`session-manager-plugin`** banners, **`claude`**
+output, and **`zoa run`** tables all land in **one stdout stream** — not structured JSON, and lines
+shift when the image or plugin changes.
+
+To assert **`zoa run`** (status, action, execution id) without brittle regex over the whole
+transcript, the in-boundary script prints **e2e-only anchors** (not a product API):
+
+| Marker                                     | Role                                                                                                      |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| **`__ZOA_E2E_EXEC_JSON__:<compact-json>`** | Single line the suite greps; Go **re-asserts** the execution fields so MOTD/plugin noise does not matter. |
+| **`__ZOA_E2E_BOUNDARY_OK__`**              | Script reached the end even when Claude’s reply wording varies.                                           |
+
+The reconnect step (**`join --exec-script`**, **`zoa version`**) relies on **transcript assertions** (MOTD,
+metadata rows, PS1, reason, exit hints), not these markers.
+
+When extending the exec script, use **`set -euo pipefail`**, emit **`__ZOA_E2E_EXEC_JSON__`** only
+when the test must read TA output from the PTY, and prefer **Go assertions** over parsing Claude or
+plugin text.
+
+#### Adding or changing session-plane e2e
+
+- Read neighboring specs under **`test/e2e/`** and match their Ginkgo layout (ordered chains,
+  **`Label("smoke")`** only when the spec belongs in consumer presubmits).
+- **Central profile** for Access/session CLI; **RC/MC profile** for TA persistence checks (same split
+  as the rest of functional e2e).
+- **Laptop-only** checks do not need boundary Exec; **in-boundary** checks extend the exec-script operator
+  script or a small reconnect script.
+- Keep the **`eph`** deployment-name gate until standing env CI has central credentials.
+- Use harness markers sparingly — only to anchor JSON in noisy exec-script stdout.
+
+Functional suite overview for TA depth stays in [Functional Suite Details](#functional-suite-details)
+above.
 
 ## CI: How It Runs
 
@@ -434,8 +499,8 @@ the deep suite runs against the PR's own code and images.
 Their `nightly-ephemeral`, `on-demand-e2e`, and `rosa-regionality-compatibility-e2e` jobs call
 `rosa-seaplane/ci/e2e-tests.sh`, which clones `rosa-seaplane-zoa@main` and runs:
 
-- PRs (`JOB_TYPE=presubmit`): `make test-e2e-smoke` (smoke-labeled functional specs + monitoring smoke — fast core check, includes Access boundary specs when `eph`)
-- Nightlies (`JOB_TYPE=periodic`): `make test-e2e` (full functional + monitoring — all TA depth **and** the same smoke-labeled specs, including Access)
+- PRs (`JOB_TYPE=presubmit`): `make test-e2e-smoke` (smoke TA + Access laptop session specs when `eph`; **no** boundary Exec script)
+- Nightlies (`JOB_TYPE=periodic`): `make test-e2e` (full functional + monitoring — includes boundary Exec script and all smoke specs)
 
 These jobs always test against whatever image tags are pinned in `rosa-seaplane` — they never
 inject a custom ZOA image.
@@ -444,10 +509,10 @@ inject a custom ZOA image.
 
 ### How Images Are Published
 
-| System      | When                       | Registry                                                        | Tag format                           | Expiry           |
-| ----------- | -------------------------- | --------------------------------------------------------------- | ------------------------------------ | ---------------- |
+| System      | When                       | Registry                                                                               | Tag format                           | Expiry           |
+| ----------- | -------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------ | ---------------- |
 | Konflux     | Every push to `main`       | `quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-{lambda,runner,boundary}` | Full commit SHA (e.g. `8af92e65...`) | Never            |
-| ci-operator | ZOA PR `on-demand-e2e` job | `quay.io/rrp-dev-ci/zoa-{lambda,runner}`                        | `ci-<PR>-<BUILD_ID>`                 | No expiry policy |
+| ci-operator | ZOA PR `on-demand-e2e` job | `quay.io/rrp-dev-ci/zoa-{lambda,runner}`                                               | `ci-<PR>-<BUILD_ID>`                 | No expiry policy |
 
 Konflux builds are the **production** images (with attestation/SAST scans). The `config/defaults.yaml`
 pin in `rosa-seaplane` always points at a Konflux-built tag.
@@ -474,7 +539,7 @@ for the full image override mechanism.
 | `InvalidSignatureException` or `AccessDeniedException` on MC calls           | Using the RC profile to call the MC Lambda (different AWS account) | Set `ZOA_MC_AWS_PROFILE=rrp-management-dev` (or your MC profile); verify with `AWS_PROFILE=<profile> aws sts get-caller-identity` |
 | `InvalidSignatureException` or `AccessDeniedException` on RC calls           | Wrong profile for the RC account                                   | Set `ZOA_RC_AWS_PROFILE=rrp-regional-dev` (or your RC profile); verify with `AWS_PROFILE=<profile> aws sts get-caller-identity`   |
 | `make ephemeral-zoa-e2e` fails to clone with a branch-not-found error        | `ZOA_REF` points at a branch that hasn't been pushed               | Push your branch first — this clones from the remote, not your local working tree                                                 |
-| Monitoring suite fails                                                       | `RHOBS_API_URL` not set                                            | Export `RHOBS_API_URL`; get it from `make ephemeral-list` in `rosa-seaplane`. Use `test-e2e-zoa` to skip monitoring.            |
+| Monitoring suite fails                                                       | `RHOBS_API_URL` not set                                            | Export `RHOBS_API_URL`; get it from `make ephemeral-list` in `rosa-seaplane`. Use `test-e2e-zoa` to skip monitoring.              |
 | Monitoring specs fail with `403 Forbidden`                                   | SigV4 signing failed — wrong profile or expired session            | Verify with `awscurl --service execute-api --region us-east-1 "$RHOBS_API_URL/api/v1/query?query=up"` using the RC profile        |
 | Monitoring specs timeout on `Eventually` for metrics                         | CloudWatch pipeline lag > 5 min (transient)                        | Retry; if persistent, check YACE pod health: `oc get pod -n cloudwatch-exporter`                                                  |
 | Monitoring log shows `panic: test timed out` with only dots (older Makefile) | Former `go test -timeout 7m` killed the package mid-`Eventually`   | Use ginkgo runner on `main`; logs show failing spec; tune `E2E_MONITORING_TIMEOUT` if needed                                      |

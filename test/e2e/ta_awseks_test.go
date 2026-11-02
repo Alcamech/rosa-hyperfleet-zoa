@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("list_eks_clusters", func() {
+var _ = Describe("zoa run list_eks_clusters", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 
@@ -34,7 +34,7 @@ var _ = Describe("list_eks_clusters", func() {
 	}
 })
 
-var _ = Describe("describe_eks_cluster", func() {
+var _ = Describe("zoa run describe_eks_cluster", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 )
 
 func TestSessionStart_WhenReasonMissing_ItShouldNotCallAPI(t *testing.T) {
@@ -130,6 +131,62 @@ func TestSessionStart_WhenReasonOnlyInEnv_ItShouldPassToAPI(t *testing.T) {
 	}
 	if gotReason != "TEST-12345" {
 		t.Fatalf("expected ZOA_REASON on request, got %q", gotReason)
+	}
+}
+
+func TestSessionStart_WhenExecScriptWithNoConnect_ItShouldRejectBeforeAPI(t *testing.T) {
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			t.Fatal("SessionStart should not be called when --exec-script and --no-connect")
+			return nil, nil
+		},
+	}
+	root := sessionTestRoot(newMockGlobalOpts(mock))
+	root.SetArgs([]string{
+		"session", "start", "us-east-1", "mc01",
+		"--reason", "TEST-12345", "--no-connect", "--exec-script", "true",
+	})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected error for --exec-script with --no-connect")
+	}
+}
+
+func TestSessionStart_WhenExecScriptWithJSONOutput_ItShouldRejectBeforeAPI(t *testing.T) {
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			t.Fatal("SessionStart should not be called when --exec-script and -o json")
+			return nil, nil
+		},
+	}
+	opts := newMockGlobalOpts(mock)
+	opts.OutputFormat = output.FormatJSON
+	root := sessionTestRoot(opts)
+	root.SetArgs([]string{
+		"session", "start", "us-east-1", "mc01",
+		"--reason", "TEST-12345", "--exec-script", "true",
+	})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected error for --exec-script with -o json")
+	}
+}
+
+func TestSessionStart_WhenExecScriptMaxOutputNonPositive_ItShouldRejectBeforeAPI(t *testing.T) {
+	mock := &mockClient{
+		sessionStartFn: func(_ context.Context, _ *client.SessionStartRequest) (*client.SessionStartResponse, error) {
+			t.Fatal("SessionStart should not be called when --exec-script-max-output is invalid")
+			return nil, nil
+		},
+	}
+	root := sessionTestRoot(newMockGlobalOpts(mock))
+	root.SetArgs([]string{
+		"session", "start", "us-east-1", "mc01",
+		"--reason", "TEST-12345", "--exec-script", "true", "--exec-script-max-output", "0",
+	})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected error for --exec-script-max-output 0")
 	}
 }
 

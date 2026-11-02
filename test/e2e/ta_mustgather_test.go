@@ -11,7 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("must_gather", func() {
+var _ = Describe("zoa run must_gather", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

@@ -153,15 +153,17 @@ These apply to **every** subcommand (`session`, `run`, `runs`, `audit`, …). Wh
 
 ### Boundary sessions (laptop — Access Lambda)
 
-| Command                                     | Description                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `session start <deployment> <target>`       | Start a boundary session (default: ECS Exec shell; `--no-connect` for metadata only) |
-| `session join <deployment/session-id>`      | Join an existing session via ECS Exec                                                |
-| `session terminate <deployment/session-id>` | Terminate a session (stops ECS task if running)                                      |
-| `session list <deployment>`                 | List your sessions (last 24h by default)                                             |
-| `session history <deployment>`              | Session history across all operators (audit view)                                    |
+| Command                                     | Description                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `session start <deployment> <target>`       | Start a boundary session (default: interactive ECS Exec; `--no-connect` or `-o json` for metadata only; **`--exec-script`** for automation) |
+| `session join <deployment/session-id>`      | Join an existing session via ECS Exec (**`--exec-script`** for non-interactive script)                                                      |
+| `session terminate <deployment/session-id>` | Terminate a session (stops ECS task if running)                                                                                       |
+| `session list <deployment>`                 | List your sessions (last 24h by default)                                                                                              |
+| `session history <deployment>`              | Session history across all operators (audit view)                                                                                     |
 
-**Session start:** Access runs the boundary task on start; default CLI flow then joins and opens ECS Exec. **`--no-connect`** provisions the task and prints session id / task info without Exec (same pattern as **`zoa run --no-wait`**). Use **`zoa session join`** to attach later.
+**Session start:** Access runs the boundary task on start; default CLI flow then joins and opens ECS Exec. **`--no-connect`** (or **`-o json`**) provisions the task and prints session metadata without Exec. **`--exec-script`** provisions, joins, runs a script via Exec, and exits — same audit path as interactive join (see exec-script paragraph below). Use **`zoa session join`** to attach later when you used **`--no-connect`**.
+
+**ECS Exec script (`--exec-script` on `session start` or `session join`):** run a bash script inside the boundary **without** opening an interactive shell on the laptop. The CLI still uses ECS Exec + `session-manager-plugin` (new **exec session id** and CloudWatch stream per run). **Stdout** is the **full Exec PTY transcript** (MOTD, prompts, script output — see [session logging](boundary/session-logging.md)), truncated on the laptop if it exceeds **`--exec-script-max-output`** (default 16 MiB; marker line `__ZOA_EXEC_SCRIPT_TRUNCATED:max=…`; full transcript in CloudWatch); **stderr** carries progress (`✓ deployment/id [target]`, post-Exec hints). Incompatible with **`-o json`**; on **`session start`**, also incompatible with **`--no-connect`**. See [Operator workflow — exec-script](guides/operator-workflow.md#ecs-exec-script-automation).
 
 **Access control (server-side):** the Access Lambda binds each session to the **operator** from your SigV4 identity (IAM role session name). **`session join`** and **`session terminate`** return **403** if you are not the owner. **`session list`** always uses **`scope=mine`** — you only see your own sessions, not another operator's. **`session history`** is the deliberate exception: it lists **all operators** for audit/situational awareness (and those queries are audited). You cannot join someone else's boundary shell even if you know their session id; Exec credentials are vended only after an ownership check. See [Operator workflow — ownership](guides/operator-workflow.md#4-start-session-join-exec-and-ownership) and [Access API — sessions](api-reference.md#get-apiv0sessions).
 
@@ -230,6 +232,12 @@ zoa session list us-east-1 -t regional
 
 # Re-join an existing session
 zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d
+
+# One-shot automation: provision, join, and run a script (no interactive shell)
+zoa session start us-east-1 regional --reason ROSAENG-1234 --exec-script 'zoa actions | head -1'
+
+# Attach later and run a script on an existing session
+zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d --exec-script 'test -f /home/sre/.claude/ZOA_SESSION.md'
 
 # Terminate a session
 zoa session terminate us-east-1/1989937d-0889-485d-b64e-facee9e0150d
@@ -362,12 +370,34 @@ Per-command flags and filters (global flags are under [Configuration](#global-fl
 
 ### `session start`
 
-| Flag           | Short | Description                                                                                                                  |
-| -------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `--reason`     |       | Reason for this session (required unless `ZOA_REASON` is set on laptop; normally required on laptop; **flag wins over env**) |
-| `--deployment` | `-d`  | Deployment name (alternative to positional arg)                                                                              |
-| `--target`     | `-t`  | Target ID (alternative to positional arg)                                                                                    |
-| `--no-connect` |       | Provision boundary task and print session metadata; do not open ECS Exec                                                     |
+| Flag              | Short | Description                                                                                                                    |
+| ----------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `--reason`        |       | Reason for this session (required unless `ZOA_REASON` is set on laptop; normally required on laptop; **flag wins over env**)   |
+| `--deployment`    | `-d`  | Deployment name (alternative to positional arg)                                                                                |
+| `--target`        | `-t`  | Target ID (alternative to positional arg)                                                                                      |
+| `--no-connect`    |       | Provision boundary task and print session metadata; do not open ECS Exec                                                       |
+| `--exec-script`         |       | After connect, run a bash script via non-interactive ECS Exec (automation/e2e); incompatible with `--no-connect` and `-o json` |
+| `--exec-script-timeout` |       | Max duration for `--exec-script` (default `10m`)                                                                                     |
+| `--exec-script-max-output` |    | Max bytes of exec-script PTY output captured on the laptop (default `16777216`, 16 MiB; full transcript in CloudWatch)              |
+
+### `session join`
+
+| Flag              | Short | Description                                                                                     |
+| ----------------- | ----- | ----------------------------------------------------------------------------------------------- |
+| `--exec-script`         |       | Run a bash script inside the boundary via non-interactive ECS Exec; incompatible with `-o json` |
+| `--exec-script-timeout` |       | Max duration for `--exec-script` (default `10m`)                                                      |
+| `--exec-script-max-output` |    | Max bytes of exec-script PTY output captured on the laptop (default `16777216`, 16 MiB; full transcript in CloudWatch) |
+
+<a id="session-join"></a>
+
+**Automation parsing (`--exec-script` on `start` or `join`):** do not use **`-o json`** on the same command that runs exec-script — **stdout is the Exec PTY transcript**, not session JSON. Session metadata appears on **stderr**:
+
+- Dispatch: **`✓ <deployment>/<session-uuid> [<target>]`**
+- After Exec: hints including **`zoa session join <deployment>/<session-uuid>`**
+
+When wrapping the CLI from Go (or any test harness), capture **combined stdout+stderr** before parsing. **`cli.ParseCompoundSessionIDFromCLIOutput(combined)`** (`internal/cli/session_progress_parse.go`) accepts that merged string and returns the compound id. Unit tests live in `internal/cli/session_progress_parse_test.go`; boundary Exec e2e uses the same pattern when chaining **`join --exec-script`** after **`start --exec-script`** (see [E2E testing — ZOA Access](e2e-testing.md#access-boundary-sessions-zoa-access-e2e)).
+
+**Two-step shell alternative:** **`SESSION_ID=$(zoa session start … --no-connect -o json | jq -r .session_id)`** then **`zoa session join "$SESSION_ID" --exec-script '…'`** — do not run bare **`jq`** on a later line without a pipe or variable (empty stdin). Example one-liner exec-script start remains in the examples section above.
 
 ### `session list`
 

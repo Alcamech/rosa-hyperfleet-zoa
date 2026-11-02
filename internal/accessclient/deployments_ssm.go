@@ -47,20 +47,40 @@ func ListDeploymentParameters(ctx context.Context, deploymentsRegion string) ([]
 // listDeploymentParametersInRegionFn is swappable in unit tests.
 var listDeploymentParametersInRegionFn = listDeploymentParametersInRegionLive
 
+type deploymentSSMLister interface {
+	GetParametersByPath(ctx context.Context, params *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
+}
+
+func listDeploymentParametersFromSSM(ctx context.Context, client deploymentSSMLister) ([]ssmtypes.Parameter, error) {
+	input := &ssm.GetParametersByPathInput{
+		Path:      aws.String(ssmDeploymentsPath + "/"),
+		Recursive: aws.Bool(false),
+	}
+	var params []ssmtypes.Parameter
+	for {
+		out, err := client.GetParametersByPath(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, out.Parameters...)
+		if out.NextToken == nil {
+			break
+		}
+		input.NextToken = out.NextToken
+	}
+	return params, nil
+}
+
 func listDeploymentParametersInRegionLive(ctx context.Context, region string) ([]ssmtypes.Parameter, error) {
 	cfg, err := AWSConfigForDeploymentsSSM(ctx, region)
 	if err != nil {
 		return nil, err
 	}
-	ssmClient := ssm.NewFromConfig(cfg)
-	out, err := ssmClient.GetParametersByPath(ctx, &ssm.GetParametersByPathInput{
-		Path:      aws.String(ssmDeploymentsPath + "/"),
-		Recursive: aws.Bool(false),
-	})
+	params, err := listDeploymentParametersFromSSM(ctx, ssm.NewFromConfig(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("SSM %s in %s: %w", ssmDeploymentsPath, region, err)
 	}
-	return out.Parameters, nil
+	return params, nil
 }
 
 // ReadDeploymentParameter fetches one deployment JSON from Central SSM (with regional failover).

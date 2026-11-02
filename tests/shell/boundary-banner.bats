@@ -44,5 +44,5 @@ setup() {
   ' bash "${BANNER}"
 
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"--reason TEST-12345"* ]]
+  [[ "${output}" == *"--reason ROSAENG-1234"* ]]
 }

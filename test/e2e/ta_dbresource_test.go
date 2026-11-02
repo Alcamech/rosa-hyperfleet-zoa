@@ -52,7 +52,7 @@ func firstDBGVK(tgt target) (string, bool) {
 	return "", false
 }
 
-var _ = Describe("list_db_gvks", func() {
+var _ = Describe("zoa run list_db_gvks", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 		if tgt.TargetType != "rc" {
@@ -82,7 +82,7 @@ var _ = Describe("list_db_gvks", func() {
 	}
 })
 
-var _ = Describe("get_db_resource", func() {
+var _ = Describe("zoa run get_db_resource", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 		if tgt.TargetType != "rc" {

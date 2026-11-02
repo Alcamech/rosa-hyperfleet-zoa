@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("rollout_restart", func() {
+var _ = Describe("zoa run rollout_restart", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

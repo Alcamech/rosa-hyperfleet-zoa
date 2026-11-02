@@ -8,39 +8,45 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/cli/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/client"
+	"github.com/openshift-online/rosa-seaplane-zoa/internal/ecsexec"
 	"github.com/openshift-online/rosa-seaplane-zoa/internal/output"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/boundaryexec"
 )
+
+// helpSessionExecScriptAutomation is shared by session start/join Long help for consistent --exec-script wording.
+const helpSessionExecScriptAutomation = `Scripted boundary session (--exec-script): run a bash script inside the task via ECS Exec (session-manager-plugin with a PTY). For runbooks, PagerDuty, CI, and e2e — same Access join, scoped credentials, and CloudWatch audit as interactive join. Incompatible with -o json. With 'session start', also incompatible with --no-connect; use 'session start --no-connect -o json', capture session_id (e.g. jq -r .session_id), then 'session join --exec-script'.`
+
+const helpSessionOverview = `Boundary sessions are audited ECS Fargate shells in a target VPC (RC or MC). You work from the laptop via the Access Lambda (SigV4 invoker role), not deployment-admin kubeconfig.
+
+Typical flow:
+  zoa deployments  — list deployment names
+  zoa targets <deployment>  — list target ids for that deployment
+  zoa session start <deployment> <target> --reason <ticket>  — provisions task; default CLI then joins ECS Exec
+  exit  — disconnects Exec only; boundary task stays until terminate or reaper
+  zoa session join <deployment>/<session-id>  — reconnect (requires session-manager-plugin on PATH)
+  zoa session terminate <deployment>/<session-id>  — stop task and mark session terminated
+  zoa session list / history  — your sessions vs fleet audit (see each command --help)
+
+Sessions are bound to your invoker identity: only you can join or terminate your session. A reason (Jira or PagerDuty) is required on start.
+
+Discovery: deployment metadata from Central SSM (try us-east-1 then eu-west-1, or --deployments-region). Optional --access-url and --invoker-role-arn skip deployment SSM (both required). Compound id: <deployment>/<session-id>. Subcommand details, flags, and examples: zoa session <command> --help.`
 
 func newSessionCommand(opts *GlobalOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "session",
 		Short: "Manage boundary sessions",
-		Long: `Start, terminate, join, and list boundary sessions for audited SRE access.
-
-Resolves the deployment from Central SSM (automatic us-east-1 then eu-west-1
-failover, or --deployments-region). Optional --access-url and --invoker-role-arn
-skip Central deployment SSM autodiscovery (both required; URL and ARN known in advance).
-
-Session compound IDs: <deployment>/<session-id> (e.g. us-east-1/1989937d-...).`,
+		Long:  helpSessionOverview,
 		Example: `  zoa session start us-east-1 regional --reason ROSAENG-1234
   zoa session list us-east-1
   zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d
-
-  zoa session start us-east-1 regional --reason ROSAENG-1234 --deployments-region eu-west-1
-
-  zoa session start us-east-1 regional --reason ROSAENG-1234 \
-    --access-url 'https://<id>.lambda-url.us-east-1.on.aws/' \
-    --invoker-role-arn 'arn:aws:iam::123456789012:role/us-east-1-zoa-access-invoker'
-
-  zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d \
-    --access-url 'https://<id>.lambda-url.us-east-1.on.aws/' \
-    --invoker-role-arn 'arn:aws:iam::123456789012:role/us-east-1-zoa-access-invoker'`,
+  zoa session terminate us-east-1/1989937d-0889-485d-b64e-facee9e0150d
+  zoa session history us-east-1 --since 7d`,
 	}
 
 	cmd.AddCommand(
@@ -58,13 +64,16 @@ func newSessionStartCommand(opts *GlobalOptions) *cobra.Command {
 	var flagDeployment, flagTarget string
 	var flagReason string
 	var flagNoConnect bool
+	var flagExecScript string
+	var flagExecScriptTimeout time.Duration
+	var flagExecScriptMaxOutput int
 
 	cmd := &cobra.Command{
 		Use:   "start [deployment] [target]",
 		Short: "Start a boundary session",
 		Long: `Start a boundary session for audited SRE access to a target cluster.
 
-Positional args: <deployment> <target> (from zoa deployments / zoa targets).
+Positional args: <deployment> <target> (from zoa deployments and zoa targets <deployment>).
 Resolves Access URL and invoker role from Central SSM unless --access-url and
 --invoker-role-arn are set. Global --deployments-region pins the SSM region.
 
@@ -77,8 +86,15 @@ ECS Exec uses scoped credentials returned by the Access API on join (not
 deployment-account admin roles).
 
 A reason is required (Jira issue or PagerDuty incident). It is stored
-on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.`,
+on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.
+
+` + helpSessionExecScriptAutomation + `
+On start, --exec-script provisions the task, joins, runs the script, and exits.`,
 		Example: `  zoa session start us-east-1 regional --reason ROSAENG-1234
+
+  zoa session start us-east-1 regional --reason ROSAENG-1234 --exec-script 'zoa actions | head -1'
+
+  zoa session start us-east-1 mc01 --reason ROSAENG-1234 --no-connect -o json
 
   zoa session start us-east-1 mc01 --reason '#123456' --no-connect
 
@@ -100,6 +116,13 @@ on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.`,
 			reasonValue, err := reason.Resolve(flagReason)
 			if err != nil {
 				return err
+			}
+
+			if flagExecScript != "" && (flagNoConnect || opts.OutputFormat == output.FormatJSON) {
+				return fmt.Errorf("--exec-script requires an interactive connect (omit --no-connect and -o json)")
+			}
+			if flagExecScript != "" && flagExecScriptMaxOutput <= 0 {
+				return fmt.Errorf("--exec-script-max-output must be positive")
 			}
 
 			c, err := getClient(opts)
@@ -139,7 +162,11 @@ on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.`,
 					return fmt.Errorf("joining session after start: %w", err)
 				}
 				region := sessionJoinRegion(opts, joinResp)
-				if err := runSessionECSExec(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp); err != nil {
+				if flagExecScript != "" {
+					if err := runSessionECSExecScript(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp, flagExecScript, flagExecScriptTimeout, flagExecScriptMaxOutput); err != nil {
+						return fmt.Errorf("ECS Exec script: %w", err)
+					}
+				} else if err := runSessionECSExec(cmd.Context(), deployment, region, resp.SessionID, accessClientForJoin(c), joinResp); err != nil {
 					return fmt.Errorf("ECS Exec: %w", err)
 				}
 				printSessionExecEndedHint(sessionProgressWriter(), deployment, compoundID, joinDeadline(resp.Deadline, joinResp))
@@ -174,6 +201,9 @@ on the session, Access audit, and the boundary task (ZOA_REASON) for zoa run.`,
 	cmd.Flags().StringVarP(&flagTarget, "target", "t", "", "Target ID (e.g. mc01)")
 	cmd.Flags().StringVar(&flagReason, "reason", "", "Reason for this session (required: Jira issue or PagerDuty incident, e.g. ROSAENG-1234 or #123456)")
 	cmd.Flags().BoolVar(&flagNoConnect, "no-connect", false, "Provision boundary task and print session metadata; do not open ECS Exec")
+	cmd.Flags().StringVar(&flagExecScript, "exec-script", "", "After connect, run a bash script inside the boundary shell via ECS Exec (runbooks, automation, e2e)")
+	cmd.Flags().DurationVar(&flagExecScriptTimeout, "exec-script-timeout", 10*time.Minute, "Timeout for --exec-script")
+	cmd.Flags().IntVar(&flagExecScriptMaxOutput, "exec-script-max-output", ecsexec.DefaultExecScriptMaxOutput, "Max bytes of --exec-script PTY output captured on the laptop (default 16 MiB; full transcript in CloudWatch)")
 
 	return cmd
 }
@@ -217,15 +247,27 @@ and 'zoa session list'.`,
 }
 
 func newSessionJoinCommand(opts *GlobalOptions) *cobra.Command {
+	var flagExecScript string
+	var flagExecScriptTimeout time.Duration
+	var flagExecScriptMaxOutput int
+
 	cmd := &cobra.Command{
 		Use:   "join <deployment/session-id>",
 		Short: "Join a boundary session via ECS Exec",
 		Long: `Join a boundary session by its compound ID (deployment/session-id).
 
-Calls the Access API for ownership checks, then opens an interactive shell via
-ECS Exec and session-manager-plugin using scoped credentials from the join response.`,
-		Example: `  zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d`,
-		Args:    cobra.ExactArgs(1),
+Calls the Access API for ownership checks, then ECS Exec via session-manager-plugin
+using scoped credentials from the join response. Default: interactive shell.
+
+` + helpSessionExecScriptAutomation + `
+On join, --exec-script runs the script on an existing session (often after 'session start --no-connect -o json').`,
+		Example: `  zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d
+
+  zoa session join us-east-1/1989937d-0889-485d-b64e-facee9e0150d --exec-script 'zoa actions | head -1'
+
+  SESSION_ID=$(zoa session start us-east-1 mc01 --reason ROSAENG-1234 --no-connect -o json | jq -r .session_id)
+  zoa session join "$SESSION_ID" --exec-script 'zoa actions | head -1'`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deployment, rawID, err := ParseSessionID(args[0])
 			if err != nil {
@@ -234,6 +276,13 @@ ECS Exec and session-manager-plugin using scoped credentials from the join respo
 
 			if opts.APIURL == "" {
 				opts.Deployment = deployment
+			}
+
+			if flagExecScript != "" && opts.OutputFormat == output.FormatJSON {
+				return fmt.Errorf("--exec-script cannot be used with -o json")
+			}
+			if flagExecScript != "" && flagExecScriptMaxOutput <= 0 {
+				return fmt.Errorf("--exec-script-max-output must be positive")
 			}
 
 			c, err := getClient(opts)
@@ -253,14 +302,25 @@ ECS Exec and session-manager-plugin using scoped credentials from the join respo
 			}
 
 			region := sessionJoinRegion(opts, resp)
+			compoundID := FormatSessionID(deployment, rawID)
+			if flagExecScript != "" {
+				if err := runSessionECSExecScript(cmd.Context(), deployment, region, rawID, accessClientForJoin(c), resp, flagExecScript, flagExecScriptTimeout, flagExecScriptMaxOutput); err != nil {
+					return fmt.Errorf("ECS Exec script: %w", err)
+				}
+				printSessionExecEndedHint(sessionProgressWriter(), deployment, compoundID, resp.Deadline)
+				return nil
+			}
 			if err := runSessionECSExec(cmd.Context(), deployment, region, rawID, accessClientForJoin(c), resp); err != nil {
 				return fmt.Errorf("ECS Exec: %w", err)
 			}
-			compoundID := FormatSessionID(deployment, rawID)
 			printSessionExecEndedHint(sessionProgressWriter(), deployment, compoundID, resp.Deadline)
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&flagExecScript, "exec-script", "", "Run a bash script inside the boundary shell via ECS Exec")
+	cmd.Flags().DurationVar(&flagExecScriptTimeout, "exec-script-timeout", 10*time.Minute, "Timeout for --exec-script")
+	cmd.Flags().IntVar(&flagExecScriptMaxOutput, "exec-script-max-output", ecsexec.DefaultExecScriptMaxOutput, "Max bytes of --exec-script PTY output captured on the laptop (default 16 MiB; full transcript in CloudWatch)")
 
 	return cmd
 }

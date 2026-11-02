@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("delete_pod", func() {
+var _ = Describe("zoa run delete_pod", func() {
 	for _, tgt := range targets {
 		tgt := tgt
 

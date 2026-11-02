@@ -78,6 +78,34 @@ setup() {
   [[ "${output}" == *"offline render"* ]]
 }
 
+@test "write_zoa_session_md includes reason and session deadline when set" {
+  run env \
+    ZOA_BOUNDARY_BANNER_PATH="${BANNER}" \
+    ZOA_BOUNDARY_BANNER="${BANNER}" \
+    ZOA_SESSION_ID="sess-raw-uuid" \
+    ZOA_OPERATOR="operator1" \
+    ZOA_DEPLOYMENT="us-east-1-eph" \
+    ZOA_TARGET="mc01" \
+    ZOA_TARGET_TYPE="mc" \
+    ZOA_REASON="ROSAENG-9999" \
+    ZOA_SESSION_DEADLINE="2030-06-01T12:00:00Z" \
+    ZOA_SESSION_IDLE_TIMEOUT_SECONDS="7200" \
+    ZOA_API_URL="https://example.lambda-url.on.aws" \
+    AWS_REGION="us-east-1" \
+    HOME="/tmp/zoa-bats-home-reason" \
+    bash -c '
+      rm -rf "${HOME}/.claude"
+      source "$1"
+      write_zoa_session_md
+      cat "$(zoa_session_md_path)"
+    ' bash "${ENTRYPOINT}"
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"| Reason | ROSAENG-9999 |"* ]]
+  [[ "${output}" == *"| Session deadline (UTC) | 2030-06-01T12:00:00Z |"* ]]
+  [[ "${output}" == *"Inactivity termination"* ]]
+}
+
 @test "install_actions_catalog renders markdown via zoa actions --offline" {
   if [[ ! -x "${ZOA_BIN}" ]]; then
     skip "build zoa first: make build"
