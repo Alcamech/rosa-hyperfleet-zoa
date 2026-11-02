@@ -194,8 +194,28 @@ func doAccessRequest(h *AccessHandler, method, path string, body interface{}, he
 
 	req := httptest.NewRequest(method, path, reqBody)
 	req.Header.Set("Content-Type", "application/json")
+	var skipIAM bool
+	var callerARN, accountID string
 	for k, v := range headers {
-		req.Header.Set(k, v)
+		switch k {
+		case "__skip_iam":
+			skipIAM = v == "true"
+		case "__caller_arn":
+			callerARN = v
+		case "__account_id":
+			accountID = v
+		default:
+			req.Header.Set(k, v)
+		}
+	}
+	if !skipIAM {
+		if callerARN == "" {
+			callerARN = testLaptopCallerARN
+		}
+		if accountID == "" {
+			accountID = testCallerAccountID
+		}
+		req = attachAuthenticatedIdentityForTest(req, callerARN, accountID)
 	}
 
 	rr := httptest.NewRecorder()
@@ -204,9 +224,14 @@ func doAccessRequest(h *AccessHandler, method, path string, body interface{}, he
 }
 
 func accessHeaders() map[string]string {
-	return map[string]string{
-		"X-Account-ID": "123456789012",
-		"X-Operator":   "arn:aws:sts::123456:assumed-role/sre-role/slopezma",
+	return nil
+}
+
+func TestAccessHandler_WhenMissingAuthenticatedIAM_ItShouldReturn401(t *testing.T) {
+	h := testAccessHandler(&mockSessionStoreAccess{}, &mockTargetStoreAccess{})
+	rr := doAccessRequest(h, "GET", "/api/v0/targets", nil, map[string]string{"__skip_iam": "true"})
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -331,11 +356,11 @@ func TestAccessHandler_WhenSessionStart_ItShouldProvisionBoundaryTask(t *testing
 	if sessions.sessions[0].Operator != "slopezma" {
 		t.Errorf("expected operator 'slopezma', got %q", sessions.sessions[0].Operator)
 	}
-	if sessions.sessions[0].SignerARN != accessHeaders()["X-Operator"] {
-		t.Errorf("expected signer_arn from X-Operator, got %q", sessions.sessions[0].SignerARN)
+	if sessions.sessions[0].SignerARN != testLaptopCallerARN {
+		t.Errorf("expected signer_arn from authenticated caller, got %q", sessions.sessions[0].SignerARN)
 	}
 	if sessions.sessions[0].AccountID != "123456789012" {
-		t.Errorf("expected account_id from X-Account-ID, got %q", sessions.sessions[0].AccountID)
+		t.Errorf("expected account_id from authenticated caller, got %q", sessions.sessions[0].AccountID)
 	}
 	if sessions.sessions[0].Reason != "TEST-12345" {
 		t.Errorf("expected reason TEST-12345, got %q", sessions.sessions[0].Reason)
@@ -708,7 +733,7 @@ func TestAccessHandler_WhenSessionStartInvalidIdentity_ItShouldReturn400(t *test
 	body := sessionStartRequest{Target: "mc01"}
 
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/start", body, map[string]string{
-		"X-Operator": "not-a-valid-arn",
+		"__caller_arn": "not-a-valid-arn",
 	})
 
 	if rr.Code != http.StatusBadRequest {
@@ -823,7 +848,7 @@ func TestAccessHandler_WhenSessionListMineInvalidIdentity_ItShouldReturn400(t *t
 	h := testAccessHandler(&mockSessionStoreAccess{}, &mockTargetStoreAccess{})
 
 	rr := doAccessRequest(h, "GET", "/api/v0/sessions?scope=mine", nil, map[string]string{
-		"X-Operator": "not-a-valid-arn",
+		"__caller_arn": "not-a-valid-arn",
 	})
 
 	if rr.Code != http.StatusBadRequest {
@@ -875,7 +900,7 @@ func TestAccessHandler_WhenSessionJoinInvalidIdentity_ItShouldReturn400(t *testi
 	h := testAccessHandler(&mockSessionStoreAccess{}, &mockTargetStoreAccess{})
 
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/join/session-123", nil, map[string]string{
-		"X-Operator": "bad-arn",
+		"__caller_arn": "bad-arn",
 	})
 
 	if rr.Code != http.StatusBadRequest {
@@ -941,7 +966,7 @@ func TestAccessHandler_WhenSessionExecAttachedInvalidIdentity_ItShouldReturn400(
 
 	body := sessionExecAttachedRequest{ExecSessionID: "k7zkjuilu2vhsrp76e48ie3ciy"}
 	rr := doAccessRequest(h, "POST", "/api/v0/sessions/exec-attached/session-123", body, map[string]string{
-		"X-Operator": "bad-arn",
+		"__caller_arn": "bad-arn",
 	})
 
 	if rr.Code != http.StatusBadRequest {
@@ -1049,8 +1074,8 @@ func TestWhenRecordingAccessAuditItShouldSetTargetCluster(t *testing.T) {
 		logger:     slog.Default(),
 		auditStore: capture,
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v0/sessions/start", nil)
-	req.Header.Set("X-Operator", "arn:aws:sts::123:assumed-role/sre/slopezma")
+	req := attachAuthenticatedIdentityForTest(httptest.NewRequest(http.MethodPost, "/api/v0/sessions/start", nil),
+		testLaptopCallerARN, testCallerAccountID)
 
 	h.recordAccessAudit(req, http.StatusOK, "session_start", "sess-1", "RE-1", "eph-fb3672ae-mc01")
 

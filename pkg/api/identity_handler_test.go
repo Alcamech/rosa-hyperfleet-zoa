@@ -24,12 +24,9 @@ func newHandlerForIdentityTests(sessionStore store.SessionStore) *Handler {
 	return h
 }
 
-func requestWithOperator(operatorHeader string) *http.Request {
+func requestWithAuthenticatedCaller(callerARN string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/api/v0/trusted-actions/get_pods/run", nil)
-	if operatorHeader != "" {
-		r.Header.Set("X-Operator", operatorHeader)
-	}
-	return r
+	return attachAuthenticatedIdentityForTest(r, callerARN, testCallerAccountID)
 }
 
 func TestHandler_resolveIdentity_WhenLaptopInvokerWithSessionStore_ItShouldReturnHumanOperator(t *testing.T) {
@@ -40,7 +37,7 @@ func TestHandler_resolveIdentity_WhenLaptopInvokerWithSessionStore_ItShouldRetur
 		},
 	})
 	arn := "arn:aws:sts::123456:assumed-role/sre-invoker/slopezma"
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != "slopezma" || signer != arn || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
@@ -59,8 +56,8 @@ func TestHandler_resolveIdentity_WhenBoundaryBridgeHit_ItShouldReturnSessionOper
 			}, nil
 		},
 	})
-	arn := "arn:aws:sts::123456:assumed-role/eph-regional-zoa-boundary-task/" + testECSTaskID
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	arn := testBoundaryTaskARN()
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != "slopezma" || signer != arn || sess != "sess-bridge-1" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
@@ -72,8 +69,8 @@ func TestHandler_resolveIdentity_WhenBoundaryBridgeMiss_ItShouldFallbackToTaskID
 			return nil, nil
 		},
 	})
-	arn := "arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/" + testECSTaskID
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	arn := testBoundaryTaskARN()
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != testECSTaskID || signer != arn || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
@@ -85,8 +82,8 @@ func TestHandler_resolveIdentity_WhenBridgeLookupFails_ItShouldFallbackToARNExtr
 			return nil, fmt.Errorf("dynamodb unavailable")
 		},
 	})
-	arn := "arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/" + testECSTaskID
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	arn := testBoundaryTaskARN()
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != testECSTaskID || signer != arn || sess != "" {
 		t.Fatalf("expected extract fallback, got operator=%q session=%q", op, sess)
 	}
@@ -95,7 +92,7 @@ func TestHandler_resolveIdentity_WhenBridgeLookupFails_ItShouldFallbackToARNExtr
 func TestHandler_resolveIdentity_WhenNoSessionStore_ItShouldExtractFromARNOnly(t *testing.T) {
 	h := newHandlerForIdentityTests(nil)
 	arn := "arn:aws:sts::123456:assumed-role/sre-role/slopezma"
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != "slopezma" || signer != arn || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
@@ -103,25 +100,43 @@ func TestHandler_resolveIdentity_WhenNoSessionStore_ItShouldExtractFromARNOnly(t
 
 func TestHandler_resolveIdentity_WhenNoSessionStoreAndTaskRoleARN_ItShouldUseTaskIDAsOperator(t *testing.T) {
 	h := newHandlerForIdentityTests(nil)
-	arn := "arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/" + testECSTaskID
-	op, signer, sess := h.resolveIdentity(requestWithOperator(arn))
+	arn := testBoundaryTaskARN()
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
 	if op != testECSTaskID || signer != arn || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
 }
 
-func TestHandler_resolveIdentity_WhenMissingOperatorHeader_ItShouldReturnEmptyIdentity(t *testing.T) {
+func TestHandler_resolveIdentity_WhenWrongBoundaryRoleName_ItShouldSkipBridgeDespiteHexSession(t *testing.T) {
+	called := false
+	h := newHandlerForIdentityTests(&mockSessionStore{
+		getByTaskIDFn: func(_ context.Context, _ string) (*store.Session, error) {
+			called = true
+			return &store.Session{Operator: "other", SessionID: "s-1"}, nil
+		},
+	})
+	arn := "arn:aws:sts::123456:assumed-role/sre-invoker/" + testECSTaskID
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(arn))
+	if called {
+		t.Fatal("bridge must not run for non-boundary role")
+	}
+	if op != testECSTaskID || signer != arn || sess != "" {
+		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
+	}
+}
+
+func TestHandler_resolveIdentity_WhenMissingAuthenticatedCaller_ItShouldReturnEmptyIdentity(t *testing.T) {
 	h := newHandlerForIdentityTests(&mockSessionStore{})
-	op, signer, sess := h.resolveIdentity(requestWithOperator(""))
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(""))
 	if op != "" || signer != "" || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
 }
 
-func TestHandler_resolveIdentity_WhenInvalidARN_ItShouldUseRawHeaderAsOperator(t *testing.T) {
+func TestHandler_resolveIdentity_WhenInvalidARN_ItShouldUseRawARNAsOperator(t *testing.T) {
 	h := newHandlerForIdentityTests(nil)
 	raw := "not-an-arn"
-	op, signer, sess := h.resolveIdentity(requestWithOperator(raw))
+	op, signer, sess := h.resolveIdentity(requestWithAuthenticatedCaller(raw))
 	if op != raw || signer != raw || sess != "" {
 		t.Fatalf("got operator=%q signer=%q session=%q", op, signer, sess)
 	}
@@ -153,8 +168,8 @@ func TestHandler_recordAudit_WhenBoundaryBridgeHit_ItShouldPersistOperatorSigner
 	})
 	h.auditStore = audit
 
-	r := requestWithOperator("arn:aws:sts::123456:assumed-role/task/" + testECSTaskID)
-	r.Header.Set("X-Account-ID", "111122223333")
+	taskARN := testBoundaryTaskARN()
+	r := attachAuthenticatedIdentityForTest(httptest.NewRequest(http.MethodPost, "/", nil), taskARN, "111122223333")
 	h.recordAudit(r, http.StatusOK, "get_pods", "exec-1")
 
 	if audit.last == nil {

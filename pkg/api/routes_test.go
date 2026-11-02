@@ -103,15 +103,15 @@ func TestHandleListExecutions_WhenExecutionsExist_ItShouldReturnThem(t *testing.
 	}
 }
 
-func TestHandleListExecutions_WhenNoAccountID_ItShouldStillReturn200(t *testing.T) {
+func TestHandleListExecutions_WhenMissingAuthenticatedIAM_ItShouldReturn401(t *testing.T) {
 	h := testHandler(&mockExecStore{})
 
 	rr := doRequest(h, "GET", "/api/v0/trusted-actions/runs", nil, map[string]string{
-		"X-Operator": "sre@test.com",
+		"__skip_iam": "true",
 	})
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

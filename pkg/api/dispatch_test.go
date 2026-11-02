@@ -79,6 +79,41 @@ func TestCreateResponse_WhenSerialized_ItShouldIncludeAllCLIExpectedFields(t *te
 	}
 }
 
+func TestCreateResponse_WhenSessionIDSet_ItShouldSerializeSessionID(t *testing.T) {
+	data, err := json.Marshal(createResponse{
+		ID:        "exec-1",
+		Action:    "get_resource",
+		Operator:  "slopezma",
+		SessionID: "sess-boundary-1",
+		Status:    "succeeded",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["session_id"] != "sess-boundary-1" {
+		t.Errorf("session_id=%v", result["session_id"])
+	}
+}
+
+func TestCreateResponse_WhenSessionIDEmpty_ItShouldOmitFromJSON(t *testing.T) {
+	data, err := json.Marshal(createResponse{
+		ID:       "exec-1",
+		Action:   "get_resource",
+		Operator: "slopezma",
+		Status:   "succeeded",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("session_id")) {
+		t.Errorf("expected omitempty session_id absent, got %s", string(data))
+	}
+}
+
 // TestHandleCreate_WhenBodyExceedsLimitWithContentLength_ItShouldReturn413 verifies
 // that the Content-Length precheck fires before any bytes are read.
 func TestHandleCreate_WhenBodyExceedsLimitWithContentLength_ItShouldReturn413(t *testing.T) {
@@ -87,8 +122,7 @@ func TestHandleCreate_WhenBodyExceedsLimitWithContentLength_ItShouldReturn413(t 
 	oversized := bytes.Repeat([]byte("x"), (64<<10)+1)
 	req := httptest.NewRequest(http.MethodPost, "/api/v0/trusted-actions/test-read/run", bytes.NewReader(oversized))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Account-ID", "account-123")
-	req.Header.Set("X-Operator", "sre@redhat.com")
+	req = attachAuthenticatedIdentityForTest(req, testLaptopCallerARN, testCallerAccountID)
 	// httptest.NewRequest sets ContentLength automatically from the reader length.
 
 	rr := httptest.NewRecorder()
@@ -113,8 +147,7 @@ func TestHandleCreate_WhenBodyExceedsLimitWithoutContentLength_ItShouldReturn400
 	oversized := bytes.Repeat([]byte("x"), (64<<10)+1)
 	req := httptest.NewRequest(http.MethodPost, "/api/v0/trusted-actions/test-read/run", bytes.NewReader(oversized))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Account-ID", "account-123")
-	req.Header.Set("X-Operator", "sre@redhat.com")
+	req = attachAuthenticatedIdentityForTest(req, testLaptopCallerARN, testCallerAccountID)
 	req.ContentLength = -1 // suppress the precheck; MaxBytesReader enforces the limit on read
 
 	rr := httptest.NewRecorder()

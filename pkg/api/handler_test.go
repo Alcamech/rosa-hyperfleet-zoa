@@ -237,8 +237,28 @@ func doRequest(h *Handler, method, path string, body interface{}, headers map[st
 
 	req := httptest.NewRequest(method, path, reqBody)
 	req.Header.Set("Content-Type", "application/json")
+	var skipIAM bool
+	var callerARN, accountID string
 	for k, v := range headers {
-		req.Header.Set(k, v)
+		switch k {
+		case "__skip_iam":
+			skipIAM = v == "true"
+		case "__caller_arn":
+			callerARN = v
+		case "__account_id":
+			accountID = v
+		default:
+			req.Header.Set(k, v)
+		}
+	}
+	if !skipIAM {
+		if callerARN == "" {
+			callerARN = testLaptopCallerARN
+		}
+		if accountID == "" {
+			accountID = testCallerAccountID
+		}
+		req = attachAuthenticatedIdentityForTest(req, callerARN, accountID)
 	}
 
 	rr := httptest.NewRecorder()
@@ -247,10 +267,7 @@ func doRequest(h *Handler, method, path string, body interface{}, headers map[st
 }
 
 func defaultHeaders() map[string]string {
-	return map[string]string{
-		"X-Account-ID": "account-123",
-		"X-Operator":   "sre@redhat.com",
-	}
+	return nil
 }
 
 // --- Tests ---
@@ -726,19 +743,20 @@ func TestHandleCreate_WhenAsyncOverride_ItShouldSetExecutionModeAsync(t *testing
 	_ = rr
 }
 
-func TestHandleCreate_WhenMissingAccountID_ItShouldReturn400(t *testing.T) {
+func TestHandler_WhenMissingAuthenticatedIAM_ItShouldReturn401(t *testing.T) {
 	h := testHandler(&mockExecStore{})
 
 	body := createRequest{
 		Params: map[string]string{"namespace": "default"},
+		Reason: "TEST-12345",
 	}
 
 	rr := doRequest(h, "POST", "/api/v0/trusted-actions/test-read/run", body, map[string]string{
-		"X-Operator": "sre@redhat.com",
+		"__skip_iam": "true",
 	})
 
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

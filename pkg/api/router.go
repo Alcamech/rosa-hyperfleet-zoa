@@ -59,32 +59,35 @@ type HandlerOption func(*Handler)
 
 // WithSessionStore enables the identity bridge — resolves ECS task ARN to SRE
 // identity via DynamoDB session lookup. Required when boundary containers call
-// the per-VPC Lambda. Without this, the handler falls back to the X-Operator header.
+// the per-VPC Lambda.
 func WithSessionStore(s store.SessionStore) HandlerOption {
 	return func(h *Handler) { h.sessionStore = s }
 }
 
 // resolveIdentity returns operator, signer_arn, and session_id for audit/executions.
-// See ResolveIdentity and docs/boundary/identity-bridge.md.
+// See docs/boundary/identity-bridge.md.
 func (h *Handler) resolveIdentity(r *http.Request) (operator, signerARN, sessionID string) {
-	signerARN = r.Header.Get("X-Operator")
-
-	if h.sessionStore != nil && signerARN != "" {
-		result, err := ResolveIdentity(r.Context(), signerARN, h.sessionStore)
-		if err != nil {
-			h.logger.Warn("identity bridge lookup failed, using ARN extraction",
-				"signerARN", signerARN, "error", err)
-			username, _, _ := ExtractSREIdentity(signerARN)
-			operator = username
-		} else {
-			operator = result.Operator
-			sessionID = result.SessionID
-		}
-	} else {
-		username, _, _ := ExtractSREIdentity(signerARN)
-		operator = username
+	signerARN = authenticatedCallerARN(r)
+	if signerARN == "" {
+		return "", "", ""
 	}
 
+	result, err := ResolveIdentity(r.Context(), signerARN, BoundaryTaskRoleName(h.cfg.TargetCluster), h.sessionStore)
+	if err != nil {
+		h.logger.Warn("identity resolution failed", "signer_arn", signerARN, "error", err)
+		return signerARN, signerARN, ""
+	}
+
+	switch result.Outcome {
+	case BridgeOutcomeMiss, BridgeOutcomeError:
+		h.logger.Warn("identity bridge unresolved: operator set to ecs task id",
+			"signer_arn", signerARN,
+			"outcome", string(result.Outcome),
+			"operator", result.Operator)
+	}
+
+	operator = result.Operator
+	sessionID = result.SessionID
 	if operator == "" {
 		operator = signerARN
 	}
@@ -127,6 +130,9 @@ func (h *Handler) registerRoutes() {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !ensureAuthenticatedIAM(w, r) {
+		return
+	}
 	start := time.Now()
 	rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 	h.mux.ServeHTTP(rw, r)
@@ -458,7 +464,7 @@ func (h *Handler) recordAudit(r *http.Request, statusCode int, action, execution
 	for _, opt := range opts {
 		opt(&o)
 	}
-	accountID := r.Header.Get("X-Account-ID")
+	accountID := authenticatedAccountID(r)
 	operator, signerARN, sessionID := h.resolveIdentity(r)
 	entry := &store.AuditEntry{
 		AccountID:     accountID,
