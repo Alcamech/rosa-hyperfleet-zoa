@@ -91,6 +91,7 @@ type DispatchResponse struct {
 	RequestedAction string     `json:"requested_action,omitempty"`
 	TargetCluster   string     `json:"target_cluster"`
 	Operator        string     `json:"operator"`
+	SessionID       string     `json:"session_id,omitempty"`
 	Status          string     `json:"status"`
 	ExecutionMode   string     `json:"execution_mode,omitempty"`
 	Scope           string     `json:"scope"`

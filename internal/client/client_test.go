@@ -97,8 +97,9 @@ func TestClientDispatch(t *testing.T) {
 
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(DispatchResponse{
-				ID:     "exec-123",
-				Status: "dispatched",
+				ID:        "exec-123",
+				Status:    "dispatched",
+				SessionID: "sess-bridge-1",
 			})
 		}))
 		defer server.Close()
@@ -119,6 +120,9 @@ func TestClientDispatch(t *testing.T) {
 		}
 		if resp.ID != "exec-123" {
 			t.Errorf("Dispatch().ID = %q, want %q", resp.ID, "exec-123")
+		}
+		if resp.SessionID != "sess-bridge-1" {
+			t.Errorf("Dispatch().SessionID = %q, want %q", resp.SessionID, "sess-bridge-1")
 		}
 	})
 
@@ -526,13 +530,13 @@ func TestClientNew(t *testing.T) {
 	})
 }
 
-func TestClientDo_WhenHeadersSet_ItShouldSendAccountAndOperator(t *testing.T) {
+func TestClientDo_WhenHeadersSet_ItShouldNotSendIdentityHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Account-ID") != "999888" {
-			t.Errorf("expected X-Account-ID=999888, got %q", r.Header.Get("X-Account-ID"))
+		if r.Header.Get("X-Account-ID") != "" {
+			t.Errorf("expected no X-Account-ID header, got %q", r.Header.Get("X-Account-ID"))
 		}
-		if r.Header.Get("X-Operator") != "arn:aws:iam::999888:user/sre" {
-			t.Errorf("expected X-Operator header, got %q", r.Header.Get("X-Operator"))
+		if r.Header.Get("X-Operator") != "" {
+			t.Errorf("expected no X-Operator header, got %q", r.Header.Get("X-Operator"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ActionList{Items: []Action{}})
@@ -553,16 +557,16 @@ func TestClientDo_WhenHeadersSet_ItShouldSendAccountAndOperator(t *testing.T) {
 	}
 }
 
-func TestClientDoV0_WhenSessionStart_ItShouldSendAccountAndOperator(t *testing.T) {
+func TestClientDoV0_WhenSessionStart_ItShouldNotSendIdentityHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v0/sessions/start" {
 			t.Errorf("expected path /api/v0/sessions/start, got %q", r.URL.Path)
 		}
-		if r.Header.Get("X-Account-ID") != "599476212575" {
-			t.Errorf("expected X-Account-ID, got %q", r.Header.Get("X-Account-ID"))
+		if r.Header.Get("X-Account-ID") != "" {
+			t.Errorf("expected no X-Account-ID header, got %q", r.Header.Get("X-Account-ID"))
 		}
-		if r.Header.Get("X-Operator") != "arn:aws:sts::599476212575:assumed-role/zoa-access-invoker/slopezma" {
-			t.Errorf("expected X-Operator, got %q", r.Header.Get("X-Operator"))
+		if r.Header.Get("X-Operator") != "" {
+			t.Errorf("expected no X-Operator header, got %q", r.Header.Get("X-Operator"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(SessionStartResponse{SessionID: "s1", Status: "creating"})
