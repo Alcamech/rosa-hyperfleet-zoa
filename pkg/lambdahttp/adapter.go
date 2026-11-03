@@ -106,6 +106,16 @@ func newHTTPRequest(ctx context.Context, event events.LambdaFunctionURLRequest) 
 		req.Header.Set("X-Request-ID", rid)
 	}
 
+	if event.RequestContext.Authorizer != nil && event.RequestContext.Authorizer.IAM != nil {
+		iam := event.RequestContext.Authorizer.IAM
+		if userARN := strings.TrimSpace(iam.UserARN); userARN != "" {
+			req = req.WithContext(ContextWithAuthenticatedCallerARN(req.Context(), userARN))
+		}
+		if accountID := strings.TrimSpace(iam.AccountID); accountID != "" {
+			req = req.WithContext(ContextWithAuthenticatedAccountID(req.Context(), accountID))
+		}
+	}
+
 	return req, nil
 }
 

@@ -175,6 +175,21 @@ func runActionResult(tgt target, action string, extra ...string) (map[string]int
 	return exec, nil
 }
 
+// expectExecutionWithoutBoundarySessionID asserts a TA run from the e2e worker profile
+// (direct zoa run to the API Lambda, not from a boundary task) has no identity-bridge
+// session link. session_id is populated only when the API caller is a boundary ECS task
+// and ResolveIdentity hits boundary-sessions (see docs/boundary/identity-bridge.md).
+func expectExecutionWithoutBoundarySessionID(exec map[string]interface{}) {
+	sid, ok := exec["session_id"]
+	if !ok {
+		return
+	}
+	if s, isStr := sid.(string); isStr && strings.TrimSpace(s) == "" {
+		return
+	}
+	Expect(sid).To(BeEmpty(), "direct API invoker must not set session_id (boundary bridge only); got %v", sid)
+}
+
 // executionIDFromRunOutput extracts an execution UUID from zoa run CLI output
 // (JSON body or the human-readable "✓ <id> [cluster]" status line).
 func executionIDFromRunOutput(out string) string {

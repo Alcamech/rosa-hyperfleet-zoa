@@ -153,7 +153,7 @@ Three layers — know which to inspect before guessing namespaces:
 
 You are **not** calling the Kubernetes API directly from the shell for TAs:
 
-1. **`zoa run`** → SigV4 to **`ZOA_API_URL`** ( **API Lambda** in this VPC ) with **`X-Operator`** = ECS task role ARN.
+1. **`zoa run`** → SigV4 to **`ZOA_API_URL`** (API Lambda in this VPC); identity comes from the IAM authorizer on the signed request.
 2. API resolves the **human operator** via DynamoDB (**identity bridge**: ECS **task id** → session row → `operator` / session id). **`ZOA_OPERATOR` env is for the prompt and `ZOA_SESSION.md` only** — audit uses the bridge.
 3. **kube-api** TAs: Lambda creates **ephemeral SA + RBAC**, **impersonates** it against **this session’s EKS cluster** (RC or MC), uploads output to **S3**, cleans up RBAC.
 4. **aws-api** TAs: Lambda **AssumeRole** into scoped roles in **this cluster’s AWS account/region**.

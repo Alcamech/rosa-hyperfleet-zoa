@@ -129,6 +129,9 @@ func (h *AccessHandler) registerRoutes() {
 }
 
 func (h *AccessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !ensureAuthenticatedIAM(w, r) {
+		return
+	}
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -166,7 +169,7 @@ func (h *AccessHandler) sessionDurationFromRequest(timeoutHours int) (time.Durat
 // Join only attaches via ECS Exec to an already-active session with a task.
 func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	operatorARN := r.Header.Get("X-Operator")
+	operatorARN := authenticatedCallerARN(r)
 
 	username, _, err := ExtractSREIdentity(operatorARN)
 	if err != nil {
@@ -219,7 +222,7 @@ func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Reques
 	deadline := now.Add(sessionDuration)
 	sessionID := uuid.New().String()
 
-	accountID := r.Header.Get("X-Account-ID")
+	accountID := authenticatedAccountID(r)
 	session := &store.Session{
 		SessionID:      sessionID,
 		Operator:       username,
@@ -344,7 +347,7 @@ func (h *AccessHandler) ensureBoundaryTask(ctx context.Context, session *store.S
 func (h *AccessHandler) handleSessionList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	operatorARN := r.Header.Get("X-Operator")
+	operatorARN := authenticatedCallerARN(r)
 
 	filter := &store.SessionFilter{}
 	if v := q.Get("status"); v != "" && v != "all" {
@@ -417,7 +420,7 @@ func (h *AccessHandler) handleSessionList(w http.ResponseWriter, r *http.Request
 func (h *AccessHandler) handleSessionTerminate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := r.PathValue("id")
-	operatorARN := r.Header.Get("X-Operator")
+	operatorARN := authenticatedCallerARN(r)
 
 	username, _, err := ExtractSREIdentity(operatorARN)
 	if err != nil {
@@ -499,7 +502,7 @@ type sessionJoinResponse struct {
 func (h *AccessHandler) handleSessionJoin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := r.PathValue("id")
-	operatorARN := r.Header.Get("X-Operator")
+	operatorARN := authenticatedCallerARN(r)
 
 	username, _, err := ExtractSREIdentity(operatorARN)
 	if err != nil {
@@ -579,7 +582,7 @@ type sessionExecAttachedRequest struct {
 func (h *AccessHandler) handleSessionExecAttached(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := r.PathValue("id")
-	operatorARN := r.Header.Get("X-Operator")
+	operatorARN := authenticatedCallerARN(r)
 
 	username, _, err := ExtractSREIdentity(operatorARN)
 	if err != nil {
@@ -667,10 +670,14 @@ func (h *AccessHandler) recordAccessAudit(r *http.Request, statusCode int, actio
 	if h.auditStore == nil {
 		return
 	}
-	signerARN := r.Header.Get("X-Operator")
+	signerARN := authenticatedCallerARN(r)
 	operator := signerARN
 	auditSessionID := sessionID
-	if result, err := ResolveIdentity(r.Context(), signerARN, h.sessionStore); err == nil {
+	boundaryTaskRole := ""
+	if h.cfg != nil {
+		boundaryTaskRole = BoundaryTaskRoleName(h.cfg.TargetCluster)
+	}
+	if result, err := ResolveIdentity(r.Context(), signerARN, boundaryTaskRole, h.sessionStore); err == nil {
 		operator = result.Operator
 		if result.SessionID != "" {
 			auditSessionID = result.SessionID
@@ -678,7 +685,7 @@ func (h *AccessHandler) recordAccessAudit(r *http.Request, statusCode int, actio
 	} else if username, _, err := ExtractSREIdentity(signerARN); err == nil {
 		operator = username
 	}
-	accountID := r.Header.Get("X-Account-ID")
+	accountID := authenticatedAccountID(r)
 	entry := &store.AuditEntry{
 		AccountID:     accountID,
 		Timestamp:     time.Now().Format(time.RFC3339Nano),

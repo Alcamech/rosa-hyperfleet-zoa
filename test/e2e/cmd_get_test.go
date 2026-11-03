@@ -50,6 +50,10 @@ var _ = Describe("zoa get", func() {
 				Expect(exec.ID).To(Equal(execID))
 				Expect(exec.Action).To(Equal("get_resource"))
 				Expect(exec.Status).To(Equal("succeeded"))
+
+				var raw map[string]interface{}
+				Expect(json.Unmarshal([]byte(jsonStr), &raw)).To(Succeed(), out)
+				expectExecutionWithoutBoundarySessionID(raw)
 			})
 
 			It("retrieves execution with --include-output", func() {

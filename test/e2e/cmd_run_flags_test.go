@@ -133,6 +133,8 @@ var _ = Describe("zoa run flags", func() {
 				Expect(raw["execution_mode"]).To(Equal("sync"))
 				Expect(raw["dry_run"]).To(BeFalse())
 				Expect(raw["force"]).To(BeFalse())
+
+				expectExecutionWithoutBoundarySessionID(raw)
 			})
 		})
 	}

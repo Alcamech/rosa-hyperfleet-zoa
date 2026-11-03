@@ -33,6 +33,7 @@ type createResponse struct {
 	RequestedAction string          `json:"requested_action,omitempty"`
 	TargetCluster   string          `json:"target_cluster"`
 	Operator        string          `json:"operator"`
+	SessionID       string          `json:"session_id,omitempty"`
 	Status          string          `json:"status"`
 	ExecutionMode   string          `json:"execution_mode"`
 	Scope           string          `json:"scope"`
@@ -47,12 +48,7 @@ type createResponse struct {
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionName string) {
 	ctx := r.Context()
 	operator, signerARN, sessionID := h.resolveIdentity(r)
-	accountID := r.Header.Get("X-Account-ID")
-
-	if accountID == "" {
-		writeError(w, http.StatusBadRequest, "missing_account", "X-Account-ID header required")
-		return
-	}
+	accountID := authenticatedAccountID(r)
 
 	action, ok := actions.Get(actionName)
 	if !ok {
@@ -271,6 +267,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 			RequestedAction: requestedAction,
 			TargetCluster:   h.cfg.TargetCluster,
 			Operator:        operator,
+			SessionID:       sessionID,
 			Status:          string(store.StatusFailed),
 			ExecutionMode:   execMode,
 			Scope:           meta.Scope,
@@ -287,6 +284,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		RequestedAction: requestedAction,
 		TargetCluster:   h.cfg.TargetCluster,
 		Operator:        operator,
+		SessionID:       sessionID,
 		Status:          string(store.StatusDispatched),
 		ExecutionMode:   execMode,
 		Scope:           meta.Scope,
@@ -342,6 +340,7 @@ func (h *Handler) executeSyncAndRespond(w http.ResponseWriter, ctx context.Conte
 		RequestedAction: exec.RequestedAction,
 		TargetCluster:   h.cfg.TargetCluster,
 		Operator:        exec.Operator,
+		SessionID:       exec.SessionID,
 		Status:          string(finalStatus),
 		ExecutionMode:   exec.ExecutionMode,
 		Scope:           exec.Scope,

@@ -8,6 +8,16 @@ import (
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
+// BridgeOutcome describes how ResolveIdentity attributed a boundary task-shaped caller.
+type BridgeOutcome string
+
+const (
+	BridgeOutcomeSkipped BridgeOutcome = "skipped" // non-boundary caller or non-task session name; no Dynamo lookup
+	BridgeOutcomeHit     BridgeOutcome = "hit"
+	BridgeOutcomeMiss    BridgeOutcome = "miss"
+	BridgeOutcomeError   BridgeOutcome = "error" // Dynamo failure; TA still runs; operator = ECS task id
+)
+
 // ExtractSREIdentity parses an STS assumed-role ARN to extract the SRE username
 // and role name.
 //
@@ -35,52 +45,84 @@ func ExtractSREIdentity(operatorARN string) (username, role string, err error) {
 	return username, role, nil
 }
 
-// IdentityResult holds the resolved identity fields from a caller ARN.
-type IdentityResult struct {
-	Operator  string // Human-readable SRE username (e.g., "slopezma")
-	SessionID string // Boundary session ID (empty for direct laptop calls)
+// BoundaryTaskRoleName is the IAM role name on boundary ECS tasks for this API target.
+// Same string Terraform uses for the ECS task role ({cluster_id}-zoa-boundary-task).
+// Used for attribution (bridge eligibility), not for authorization — see docs/boundary/identity-bridge.md.
+func BoundaryTaskRoleName(targetCluster string) string {
+	if targetCluster == "" {
+		return ""
+	}
+	return targetCluster + "-zoa-boundary-task"
 }
 
-// ResolveIdentity attributes API requests to a human operator and optional boundary session.
+// IsBoundaryTaskCaller reports whether signerARN is the configured boundary task role for this target.
+func IsBoundaryTaskCaller(signerARN, boundaryTaskRoleName string) bool {
+	if boundaryTaskRoleName == "" {
+		return false
+	}
+	_, role, err := ExtractSREIdentity(signerARN)
+	if err != nil {
+		return false
+	}
+	return role == boundaryTaskRoleName
+}
+
+type IdentityResult struct {
+	Operator  string        // Session owner id from bridge, or ECS task id when bridge miss/error
+	SessionID string        // Boundary session ID (empty when bridge did not run or did not hit)
+	Outcome   BridgeOutcome // Bridge lookup result for task-shaped callers
+}
+
+// ResolveIdentity sets operator and session_id for API audit and executions (attribution only).
 //
 // Design: docs/boundary/identity-bridge.md
 //
-//  1. Identity bridge: RoleSessionName from signer_arn is often the ECS task UUID on
-//     boundary TAs. GetByTaskID (GSI task-id-index) → operator + session_id.
-//  2. TEMPORARY fallback (laptop zoa run until IAM restricts API invoke to boundary tasks):
-//     operator = ExtractSREIdentity(signer_arn); session_id = "".
+// Identity input is always the SigV4-authenticated IAM userArn from the Lambda authorizer, never a client header.
 //
-// IAM policies decide who may invoke; this function does not gate on IAM role names.
-func ResolveIdentity(ctx context.Context, signerARN string, sessionStore store.SessionStore) (*IdentityResult, error) {
+// Authorization (invoke access) is Function URL IAM policy in Terraform, not this function.
+// Attribution paths:
+//   - Boundary task role for this target + ECS task id session name → GetByTaskID (hit / miss / error).
+//   - Other authenticated caller shapes → operator = STS session name; session_id empty.
+func ResolveIdentity(ctx context.Context, signerARN, boundaryTaskRoleName string, sessionStore store.SessionStore) (*IdentityResult, error) {
 	if signerARN == "" {
 		return nil, fmt.Errorf("empty caller ARN")
 	}
 
-	sessionName, _, err := ExtractSREIdentity(signerARN)
+	sessionName, roleName, err := ExtractSREIdentity(signerARN)
 	if err != nil {
 		return nil, err
 	}
 
-	if sessionStore != nil && looksLikeECSTaskID(sessionName) {
+	boundaryCaller := boundaryTaskRoleName != "" && roleName == boundaryTaskRoleName
+	if sessionStore != nil && boundaryCaller && looksLikeECSTaskID(sessionName) {
 		session, err := sessionStore.GetByTaskID(ctx, sessionName)
 		if err != nil {
-			return nil, fmt.Errorf("looking up session for task %q: %w", sessionName, err)
+			return &IdentityResult{
+				Operator: sessionName,
+				Outcome:  BridgeOutcomeError,
+			}, nil
 		}
 		if session != nil {
 			return &IdentityResult{
 				Operator:  session.Operator,
 				SessionID: session.SessionID,
+				Outcome:   BridgeOutcomeHit,
 			}, nil
 		}
+		return &IdentityResult{
+			Operator: sessionName,
+			Outcome:  BridgeOutcomeMiss,
+		}, nil
 	}
 
-	// TEMPORARY: laptop TA until IAM restricts API invoke to boundary task role only.
 	return &IdentityResult{
 		Operator: sessionName,
+		Outcome:  BridgeOutcomeSkipped,
 	}, nil
 }
 
-// looksLikeECSTaskID is a performance hint only (ECS task ids are 32-char hex).
+// looksLikeECSTaskID reports whether the STS session name has the shape ECS uses for task ids (32-char hex).
+// Used together with boundary task role name matching; hex alone does not imply a boundary caller.
 func looksLikeECSTaskID(s string) bool {
 	if len(s) != 32 {
 		return false

@@ -54,12 +54,6 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.accountID != "" {
-		req.Header.Set("X-Account-ID", c.accountID)
-	}
-	if c.operator != "" {
-		req.Header.Set("X-Operator", c.operator)
-	}
 
 	if c.signer != nil {
 		creds, err := c.credentials.Retrieve(ctx)
@@ -102,12 +96,6 @@ func surfaceForPath(fullPath string) APISurface {
 func (c *Client) signRequest(ctx context.Context, req *http.Request, bodyReader io.ReadSeeker) error {
 	if c.signer == nil {
 		return nil
-	}
-	if c.accountID != "" {
-		req.Header.Set("X-Account-ID", c.accountID)
-	}
-	if c.operator != "" {
-		req.Header.Set("X-Operator", c.operator)
 	}
 	creds, err := c.credentials.Retrieve(ctx)
 	if err != nil {

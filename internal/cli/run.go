@@ -164,6 +164,7 @@ func runAction(ctx context.Context, global *GlobalOptions, opts *runOptions, act
 				RequestedAction: resp.RequestedAction,
 				TargetCluster:   resp.TargetCluster,
 				Operator:        resp.Operator,
+				SessionID:       resp.SessionID,
 				Status:          resp.Status,
 				ExecutionMode:   resp.ExecutionMode,
 				Scope:           resp.Scope,

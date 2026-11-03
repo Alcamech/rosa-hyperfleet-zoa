@@ -10,6 +10,16 @@ import (
 
 const testECSTaskID = "6e8699e3938a4bcd1234567890abcdef"
 
+const testTargetCluster = "test-rc"
+
+func testBoundaryTaskRoleName() string {
+	return BoundaryTaskRoleName(testTargetCluster)
+}
+
+func testBoundaryTaskARN() string {
+	return "arn:aws:sts::123456:assumed-role/" + testBoundaryTaskRoleName() + "/" + testECSTaskID
+}
+
 func TestExtractSREIdentity_WhenValidAssumedRoleARN_ItShouldReturnUsernameAndRole(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -141,6 +151,7 @@ func TestResolveIdentity_WhenDirectSREARN_ItShouldReturnUsernameAndEmptySession(
 	result, err := ResolveIdentity(
 		context.Background(),
 		"arn:aws:sts::123456:assumed-role/sre-role/slopezma",
+		testBoundaryTaskRoleName(),
 		mockStore,
 	)
 	if err != nil {
@@ -165,8 +176,8 @@ func TestResolveIdentity_WhenTaskIDBridgeHit_ItShouldReturnSessionOperator(t *te
 		},
 	}
 
-	arn := "arn:aws:sts::123456:assumed-role/eph-046f5f15-regional-zoa-boundary-task/" + testECSTaskID
-	result, err := ResolveIdentity(context.Background(), arn, mockStore)
+	arn := testBoundaryTaskARN()
+	result, err := ResolveIdentity(context.Background(), arn, testBoundaryTaskRoleName(), mockStore)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,6 +186,9 @@ func TestResolveIdentity_WhenTaskIDBridgeHit_ItShouldReturnSessionOperator(t *te
 	}
 	if result.SessionID != "sess-xyz" {
 		t.Errorf("expected session ID 'sess-xyz', got %q", result.SessionID)
+	}
+	if result.Outcome != BridgeOutcomeHit {
+		t.Errorf("expected outcome hit, got %q", result.Outcome)
 	}
 }
 
@@ -187,7 +201,8 @@ func TestResolveIdentity_WhenTaskIDBridgeMiss_ItShouldFallbackToSessionName(t *t
 
 	result, err := ResolveIdentity(
 		context.Background(),
-		"arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/"+testECSTaskID,
+		testBoundaryTaskARN(),
+		testBoundaryTaskRoleName(),
 		mockStore,
 	)
 	if err != nil {
@@ -199,27 +214,37 @@ func TestResolveIdentity_WhenTaskIDBridgeMiss_ItShouldFallbackToSessionName(t *t
 	if result.SessionID != "" {
 		t.Errorf("expected empty session ID on bridge miss, got %q", result.SessionID)
 	}
+	if result.Outcome != BridgeOutcomeMiss {
+		t.Errorf("expected outcome miss, got %q", result.Outcome)
+	}
 }
 
-func TestResolveIdentity_WhenBridgeLookupErrors_ItShouldReturnError(t *testing.T) {
+func TestResolveIdentity_WhenBridgeLookupErrors_ItShouldUseTaskIDAsOperator(t *testing.T) {
 	mockStore := &mockSessionStore{
 		getByTaskIDFn: func(_ context.Context, _ string) (*store.Session, error) {
 			return nil, fmt.Errorf("dynamo down")
 		},
 	}
 
-	_, err := ResolveIdentity(
+	result, err := ResolveIdentity(
 		context.Background(),
-		"arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/"+testECSTaskID,
+		testBoundaryTaskARN(),
+		testBoundaryTaskRoleName(),
 		mockStore,
 	)
-	if err == nil {
-		t.Fatal("expected error when bridge lookup fails")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Operator != testECSTaskID {
+		t.Errorf("expected operator %q, got %q", testECSTaskID, result.Operator)
+	}
+	if result.Outcome != BridgeOutcomeError {
+		t.Errorf("expected outcome error, got %q", result.Outcome)
 	}
 }
 
 func TestResolveIdentity_WhenEmptyARN_ItShouldReturnError(t *testing.T) {
-	_, err := ResolveIdentity(context.Background(), "", nil)
+	_, err := ResolveIdentity(context.Background(), "", testBoundaryTaskRoleName(), nil)
 	if err == nil {
 		t.Fatal("expected error for empty ARN")
 	}
@@ -228,7 +253,8 @@ func TestResolveIdentity_WhenEmptyARN_ItShouldReturnError(t *testing.T) {
 func TestResolveIdentity_WhenNilSessionStoreAndTaskIDARN_ItShouldFallback(t *testing.T) {
 	result, err := ResolveIdentity(
 		context.Background(),
-		"arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/"+testECSTaskID,
+		testBoundaryTaskARN(),
+		testBoundaryTaskRoleName(),
 		nil,
 	)
 	if err != nil {
@@ -236,6 +262,9 @@ func TestResolveIdentity_WhenNilSessionStoreAndTaskIDARN_ItShouldFallback(t *tes
 	}
 	if result.Operator != testECSTaskID {
 		t.Errorf("expected operator %q, got %q", testECSTaskID, result.Operator)
+	}
+	if result.Outcome != BridgeOutcomeSkipped {
+		t.Errorf("expected outcome skipped without session store, got %q", result.Outcome)
 	}
 }
 
@@ -250,6 +279,7 @@ func TestResolveIdentity_WhenHumanSessionName_ItShouldNotCallTaskIDBridge(t *tes
 	result, err := ResolveIdentity(
 		context.Background(),
 		"arn:aws:sts::123456:assumed-role/sre-role/slopezma",
+		testBoundaryTaskRoleName(),
 		mockStore,
 	)
 	if err != nil {
@@ -271,7 +301,7 @@ func TestLooksLikeECSTaskID_WhenValidHex32_ItShouldReturnTrue(t *testing.T) {
 
 func TestResolveIdentity_TableDriven_ItShouldCoverAttributionPaths(t *testing.T) {
 	laptopARN := "arn:aws:sts::123456:assumed-role/sre-role/slopezma"
-	taskARN := "arn:aws:sts::123456:assumed-role/zoa-boundary-task-role/" + testECSTaskID
+	taskARN := testBoundaryTaskARN()
 
 	tests := []struct {
 		name     string
@@ -308,7 +338,7 @@ func TestResolveIdentity_TableDriven_ItShouldCoverAttributionPaths(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveIdentity(context.Background(), tt.arn, tt.store)
+			got, err := ResolveIdentity(context.Background(), tt.arn, testBoundaryTaskRoleName(), tt.store)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -316,6 +346,40 @@ func TestResolveIdentity_TableDriven_ItShouldCoverAttributionPaths(t *testing.T)
 				t.Fatalf("got operator=%q session=%q", got.Operator, got.SessionID)
 			}
 		})
+	}
+}
+
+func TestResolveIdentity_WhenInvokerUsesHexSessionName_ItShouldSkipBridgeLookup(t *testing.T) {
+	called := false
+	mockStore := &mockSessionStore{
+		getByTaskIDFn: func(_ context.Context, _ string) (*store.Session, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	arn := "arn:aws:sts::123456:assumed-role/sre-invoker/" + testECSTaskID
+	result, err := ResolveIdentity(context.Background(), arn, testBoundaryTaskRoleName(), mockStore)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called {
+		t.Fatal("expected no Dynamo lookup for non-boundary role even with hex session name")
+	}
+	if result.Operator != testECSTaskID {
+		t.Errorf("expected operator %q, got %q", testECSTaskID, result.Operator)
+	}
+	if result.Outcome != BridgeOutcomeSkipped {
+		t.Errorf("expected outcome skipped, got %q", result.Outcome)
+	}
+}
+
+func TestIsBoundaryTaskCaller_WhenRoleMatchesTargetCluster_ItShouldReturnTrue(t *testing.T) {
+	arn := testBoundaryTaskARN()
+	if !IsBoundaryTaskCaller(arn, testBoundaryTaskRoleName()) {
+		t.Fatal("expected boundary task caller")
+	}
+	if IsBoundaryTaskCaller("arn:aws:sts::123456:assumed-role/sre-role/slopezma", testBoundaryTaskRoleName()) {
+		t.Fatal("expected false for invoker role")
 	}
 }
 

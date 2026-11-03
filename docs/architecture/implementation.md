@@ -6,7 +6,7 @@ This document covers internal implementation details of the ZOA Lambda execution
 
 ## Execution Flow (Sync)
 
-The diagram below is the **API Lambda TA path** (caller signs with SigV4). In production the caller is the boundary task role; human attribution uses the [identity bridge](../boundary/identity-bridge.md) (`pkg/api/identity.go` → `GetByTaskID`).
+The diagram below is the **API Lambda TA path** (SigV4). The designed caller is the **boundary task role**; human **`operator`** on audit/executions comes from the [identity bridge](../boundary/identity-bridge.md) (`pkg/api/identity.go` → `GetByTaskID`). Which principals may invoke the URL is set in Function URL IAM policy (Terraform) — see [Invoke access vs audit attribution](../boundary/identity-bridge.md#invoke-access-vs-audit-attribution).
 
 ```mermaid
 sequenceDiagram
@@ -136,7 +136,7 @@ Defines the `Action` interface (`Metadata`, `Validate`, `Execute`) and a global 
 
 ### `pkg/lambdahttp` — Function URL Streaming Adapter
 
-Converts AWS Lambda Function URL events (`events.LambdaFunctionURLRequest`) into standard `*http.Request` objects and serves them through the Go `http.Handler` interface. Returns a `LambdaFunctionURLStreamingResponse` (io.Reader body) enabling native response streaming up to 200MB. This decouples all HTTP handler logic from the Lambda runtime — the rest of the codebase is pure `net/http`.
+Converts AWS Lambda Function URL events (`events.LambdaFunctionURLRequest`) into standard `*http.Request` objects and serves them through the Go `http.Handler` interface. Returns a `LambdaFunctionURLStreamingResponse` (io.Reader body) enabling native response streaming up to 200MB. Injects the SigV4-authenticated **`userArn`** from `requestContext.authorizer.iam` into the request context (see `AuthenticatedCallerARN`). This decouples all HTTP handler logic from the Lambda runtime — the rest of the codebase is pure `net/http`.
 
 ### `pkg/metrics` — CloudWatch EMF Instrumentation
 

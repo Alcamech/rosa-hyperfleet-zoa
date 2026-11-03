@@ -37,10 +37,15 @@ grep -Fq "$expected_deployment" <<<"$reply"
 grep -Fq "$expected_target" <<<"$reply"
 zoa actions -o json | jq -e '.items | type == "array" and (map(select(.name == "get_resource")) | length) > 0'
 exec_json=$(zoa run get_resource --resource nodes --reason %q -o json)
-echo "$exec_json" | jq -e '
+test -n "${ZOA_OPERATOR:-}"
+test -n "${ZOA_SESSION_ID:-}"
+echo "$exec_json" | jq -e --arg op "${ZOA_OPERATOR}" --arg sid "${ZOA_SESSION_ID}" '
   .status == "succeeded"
   and .action == "get_resource"
   and .scope == "kube-api"
+  and (.operator | type == "string")
+  and (.operator == $op)
+  and (.session_id == $sid)
   and (.output | type == "array")
   and (.output | length > 0)'
 echo %s$(echo "$exec_json" | jq -c .)
@@ -80,13 +85,12 @@ func assertBoundaryExecScriptTranscript(scriptOut, deployment, targetID, reason,
 }
 
 // assertBoundaryExecScriptOutput checks Go-side expectations on start --exec-script PTY output (harness markers + zoa run JSON).
-func assertBoundaryExecScriptOutput(scriptOut string) string {
+func assertBoundaryExecScriptOutput(scriptOut string) (executionID string, exec map[string]interface{}) {
 	Expect(scriptOut).To(ContainSubstring(boundaryExecOKMarker),
 		"exec script did not finish — output:\n%s", scriptOut)
 
 	jsonStr := extractBoundaryExecScriptJSON(scriptOut, boundaryExecJSONMarker)
 	Expect(jsonStr).NotTo(BeEmpty(), "expected %s line in exec-script output:\n%s", boundaryExecJSONMarker, scriptOut)
-	var exec map[string]interface{}
 	Expect(json.Unmarshal([]byte(jsonStr), &exec)).To(Succeed(),
 		"expected zoa run -o json execution object in exec-script output:\n%s", scriptOut)
 	Expect(exec["status"]).To(Equal("succeeded"))
@@ -97,9 +101,23 @@ func assertBoundaryExecScriptOutput(scriptOut string) string {
 	Expect(ok).To(BeTrue(), "execution output should be a node list array, got: %T", exec["output"])
 	Expect(out).NotTo(BeEmpty(), "expected at least one node from get_resource inside boundary")
 
-	id, _ := exec["id"].(string)
-	Expect(id).NotTo(BeEmpty(), "execution id missing from exec-script zoa run JSON")
-	return id
+	executionID, _ = exec["id"].(string)
+	Expect(executionID).NotTo(BeEmpty(), "execution id missing from exec-script zoa run JSON")
+	return executionID, exec
+}
+
+// assertExecutionIdentityBridgeAttribution verifies boundary zoa run was attributed via the
+// identity bridge (execution operator + session_id match the Access session row).
+func assertExecutionIdentityBridgeAttribution(exec map[string]interface{}, row sessionRow) {
+	op, _ := exec["operator"].(string)
+	Expect(op).NotTo(BeEmpty(), "execution operator")
+	Expect(op).To(Equal(row.Operator),
+		"identity bridge: execution operator should match boundary session row")
+
+	sid, _ := exec["session_id"].(string)
+	Expect(sid).NotTo(BeEmpty(), "execution session_id (expected identity bridge hit from boundary task)")
+	Expect(sid).To(Equal(row.SessionID),
+		"identity bridge: execution session_id should match boundary session row")
 }
 
 func expectActiveSessionRow(deployment, targetID, rawID string) sessionRow {
@@ -168,7 +186,10 @@ var _ = Describe("zoa session exec", Serial, func() {
 				Expect(compoundID).NotTo(BeEmpty())
 				Expect(rawID).NotTo(BeEmpty())
 
-				boundaryExecID = assertBoundaryExecScriptOutput(scriptOut)
+				var execFromScript map[string]interface{}
+				boundaryExecID, execFromScript = assertBoundaryExecScriptOutput(scriptOut)
+				row := expectActiveSessionRow(deployment, targetID, rawID)
+				assertExecutionIdentityBridgeAttribution(execFromScript, row)
 			})
 
 			It("reconnects with a second ECS Exec join --exec-script on the same session", func() {
@@ -200,19 +221,19 @@ var _ = Describe("zoa session exec", Serial, func() {
 
 			It("persists boundary TA execution retrievable via zoa get", func() {
 				Expect(boundaryExecID).NotTo(BeEmpty(), "first exec-script spec must capture execution id")
+				Expect(rawID).NotTo(BeEmpty(), "first exec-script spec must capture session id")
+
+				row := expectActiveSessionRow(deployment, targetID, rawID)
 
 				out, err := runZoa(tgt, "get", boundaryExecID, "-o", "json", "--include-output")
 				Expect(err).NotTo(HaveOccurred(), out)
 				jsonStr := extractJSON(out)
-				var exec struct {
-					ID     string `json:"id"`
-					Action string `json:"action"`
-					Status string `json:"status"`
-				}
+				var exec map[string]interface{}
 				Expect(json.Unmarshal([]byte(jsonStr), &exec)).To(Succeed(), out)
-				Expect(exec.ID).To(Equal(boundaryExecID))
-				Expect(exec.Action).To(Equal("get_resource"))
-				Expect(exec.Status).To(Equal("succeeded"))
+				Expect(exec["id"]).To(Equal(boundaryExecID))
+				Expect(exec["action"]).To(Equal("get_resource"))
+				Expect(exec["status"]).To(Equal("succeeded"))
+				assertExecutionIdentityBridgeAttribution(exec, row)
 			})
 
 			It("terminates the boundary session after exec-script automation", func() {
