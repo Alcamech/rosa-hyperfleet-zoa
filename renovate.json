@@ -32,6 +32,18 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver-coerced",
       "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "AWS CLI v2 release in zoa-boundary image",
+      "managerFilePatterns": ["/^Containerfile\\.boundary$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-tags depName=aws/aws-cli\\s+ARG AWS_CLI_VERSION=\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "aws/aws-cli",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)$"
     }
   ],
   "timezone": "UTC",
@@ -61,7 +73,12 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["Containerfile.boundary"],
       "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
-      "groupName": "dockerfile dependencies"
+      "groupName": "dockerfile dependencies",
+      "schedule": ["* 2-4 * * 1-5"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "addLabels": ["automerge", "dependencies", "docker", "lgtm", "approved"]
     },
     {
       "description": "Manual review for major zoa-boundary tool ARG updates",
