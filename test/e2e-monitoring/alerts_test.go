@@ -15,14 +15,19 @@ import (
 var zoaAlertingRules = []string{
 	"ZOAExecutionsTotalFailure",
 	"ZOAReconcilerStalled",
+	"ZOAReconcilerErrors",
 	"ZOADLQGrowing",
 	"ZOADynamoDBThrottled",
 	"ZOALambdaErrorRateHigh",
 	"ZOAApiAvailabilityBelowSLO",
+	"ZOAAccessAvailabilityBelowSLO",
 	"ZOATASuccessRateBelowSLO",
+	"ZOAIdentityBridgeHitRateBelowSLO",
 	"ZOALambdaThrottled",
 	"ZOAGCStalled",
 	"ZOAGCErrors",
+	"ZOAReaperStalled",
+	"ZOAReaperErrors",
 	"ZOACircuitBreakerFlapping",
 }
 
