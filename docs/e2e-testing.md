@@ -427,12 +427,12 @@ still “SRE inside the boundary task.” Session id format and CLI output for a
 
 #### When these specs run
 
-| Gate                                     | Behavior                                                                                                    |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **`ZOA_CENTRAL_AWS_PROFILE`**            | Default **`rrp-central`** — Access/session commands, not RC/MC Lambda URLs.                                 |
-| **`ZOA_DEPLOYMENT_NAME` contains `eph`** | Temporary skip outside ephemeral CI until int/stage ship central **`aws_config`**.                          |
-| **`session-manager-plugin` on `PATH`**   | Required for exec-script; consumer CI image installs the plugin under `/usr/local/sessionmanagerplugin/bin`. |
-| **CI ephemeral invoker**                 | Central role **`ci`** must be trusted (Terraform **`ci=true`** on render).                                  |
+| Gate                                     | Behavior                                                                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **`ZOA_CENTRAL_AWS_PROFILE`**            | Default **`rrp-central`** — Access/session commands, not RC/MC Lambda URLs.                                                 |
+| **`ZOA_DEPLOYMENT_NAME` contains `eph`** | Temporary skip outside ephemeral CI until int/stage ship central **`aws_config`**.                                          |
+| **`session-manager-plugin` on `PATH`**   | Required for exec-script; consumer CI image installs the plugin under `/usr/local/sessionmanagerplugin/bin`.                |
+| **CI ephemeral invoker**                 | Central role **`ci`** must be trusted (Terraform **`ci=true`** on render).                                                  |
 | **Ordering**                             | Exec (full): per target, ordered start → join → list → get → terminate. Laptop session specs ordered within their Describe. |
 
 Exec script chain (**full functional only**): **`start --exec-script`** → **`join --exec-script`** → **`session list`**
