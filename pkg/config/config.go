@@ -123,6 +123,9 @@ type Config struct {
 
 	// SessionMaxDurationHours is the default session length and the max timeout_hours clients may request (default 4).
 	SessionMaxDurationHours int
+
+	// DeploymentName labels deployment-scoped Access EMF (health, targets, session list/history).
+	DeploymentName string
 }
 
 func Load() (*Config, error) {
@@ -164,6 +167,7 @@ func Load() (*Config, error) {
 		SessionIdleTimeoutSeconds:      getEnvInt("SESSION_IDLE_TIMEOUT_SECONDS", 3600),
 		SessionStaleCreatingSeconds:    getEnvInt("SESSION_STALE_CREATING_SECONDS", 900),
 		SessionMaxDurationHours:        getEnvInt("SESSION_MAX_DURATION_HOURS", 4),
+		DeploymentName:                 getEnv("DEPLOYMENT_NAME", ""),
 	}
 
 	validModes := map[string]bool{"api": true, "worker": true, "access": true}

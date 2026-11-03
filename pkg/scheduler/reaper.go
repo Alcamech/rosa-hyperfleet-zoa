@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 )
 
@@ -81,16 +82,30 @@ func NewReaper(sessionStore store.SessionStore, ecs ECSAPI, logger *slog.Logger,
 
 // Run enforces deadline, stale creating, and idle policies on open boundary sessions.
 func (r *Reaper) Run(ctx context.Context) error {
+	start := time.Now()
+	var phaseErrors int
+
 	if err := r.runDeadline(ctx); err != nil {
+		phaseErrors++
+		metrics.EmitReaper(r.targetCluster, time.Since(start).Milliseconds(), phaseErrors)
 		return err
 	}
 	if err := r.runStaleCreating(ctx); err != nil {
+		phaseErrors++
+		metrics.EmitReaper(r.targetCluster, time.Since(start).Milliseconds(), phaseErrors)
 		return err
 	}
 	if r.activity != nil && r.idleTimeout > 0 {
 		if err := r.runIdle(ctx); err != nil {
+			phaseErrors++
+			metrics.EmitReaper(r.targetCluster, time.Since(start).Milliseconds(), phaseErrors)
 			return err
 		}
+	}
+
+	metrics.EmitReaper(r.targetCluster, time.Since(start).Milliseconds(), phaseErrors)
+	if phaseErrors > 0 {
+		return fmt.Errorf("reaper completed with %d phase errors", phaseErrors)
 	}
 	return nil
 }

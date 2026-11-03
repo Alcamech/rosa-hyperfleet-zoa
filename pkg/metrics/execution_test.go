@@ -74,3 +74,41 @@ func TestEmitHTTPRequest_When5xx_ItShouldSetStatusClassOnCountAndDuration(t *tes
 		t.Fatal("expected HttpRequestDuration to share StatusClass dimensions")
 	}
 }
+
+func TestEmitIdentityBridgeLookup_WhenMiss_ItShouldIncludeOutcomeDimension(t *testing.T) {
+	line := captureStdout(func() {
+		EmitIdentityBridgeLookup("mc01", IdentityBridgeOutcomeMiss)
+	})
+	if !strings.Contains(line, "IdentityBridgeLookup") || !strings.Contains(line, "miss") {
+		t.Fatalf("expected bridge lookup EMF: %s", line)
+	}
+}
+
+func TestEmitIdentityBridgeLookup_WhenSkipped_ItShouldIncludeOutcomeDimension(t *testing.T) {
+	line := captureStdout(func() {
+		EmitIdentityBridgeLookup("mc01", IdentityBridgeOutcomeSkipped)
+	})
+	if !strings.Contains(line, "IdentityBridgeLookup") || !strings.Contains(line, "skipped") {
+		t.Fatalf("expected bridge lookup EMF: %s", line)
+	}
+}
+
+func TestEmitReaper_WhenCalled_ItShouldEmitLastRunGauge(t *testing.T) {
+	line := captureStdout(func() {
+		EmitReaper("mc01", 100, 0)
+	})
+	for _, want := range []string{"ReaperDuration", "ReaperErrors", "ReaperLastRun", "reaper"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("expected %q in output: %s", want, line)
+		}
+	}
+}
+
+func TestEmitAccessHTTPRequest_WhenCalled_ItShouldUseAccessHandlerMode(t *testing.T) {
+	line := captureStdout(func() {
+		EmitAccessHTTPRequest("eph-1fcc5750-mc01", "POST", "/api/v0/sessions/start", 200, 50)
+	})
+	if !strings.Contains(line, "access") {
+		t.Fatalf("expected HandlerMode access: %s", line)
+	}
+}
