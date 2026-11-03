@@ -250,7 +250,7 @@ func prepareConnect(ctx context.Context, cfg aws.Config, p JoinParams) (*Session
 			return nil, aws.Credentials{}, "", fmt.Errorf("task not running: %w", err)
 		}
 		if err := runWithSpinner(ctx, "ECS Exec agent", func(ctx context.Context) error {
-			return ecsClient.WaitForExecAgent(ctx, taskID, p.ContainerName, 30*time.Second)
+			return ecsClient.WaitForExecAgent(ctx, taskID, p.ContainerName, DefaultExecAgentMaxWait)
 		}); err != nil {
 			return nil, aws.Credentials{}, "", fmt.Errorf("exec agent not ready: %w", err)
 		}
@@ -259,7 +259,7 @@ func prepareConnect(ctx context.Context, cfg aws.Config, p JoinParams) (*Session
 	var session *Session
 	if err := runWithSpinner(ctx, "opening ECS Exec", func(ctx context.Context) error {
 		var execErr error
-		session, execErr = ecsClient.ExecuteCommand(ctx, taskID, p.ContainerName, p.Command)
+		session, execErr = ecsClient.ExecuteCommandWithRetry(ctx, taskID, p.ContainerName, p.Command)
 		return execErr
 	}); err != nil {
 		return nil, aws.Credentials{}, "", err

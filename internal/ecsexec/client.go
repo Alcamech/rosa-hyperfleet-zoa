@@ -3,12 +3,22 @@ package ecsexec
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	smithy "github.com/aws/smithy-go"
+)
+
+// Defaults for cold-start boundary tasks (Fargate pull + SSM Exec registration lag).
+const (
+	DefaultExecAgentMaxWait            = 90 * time.Second
+	DefaultExecuteCommandAttempts      = 10
+	DefaultExecuteCommandRetryInterval = 2 * time.Second
 )
 
 // Client performs ECS Exec against a single cluster.
@@ -133,4 +143,44 @@ func (c *Client) ExecuteCommand(ctx context.Context, taskID, container, command 
 		Target:     target,
 		RawSession: rawSession,
 	}, nil
+}
+
+// ExecuteCommandWithRetry calls ExecuteCommand, retrying when ECS/SSM is not yet connected.
+func (c *Client) ExecuteCommandWithRetry(ctx context.Context, taskID, container, command string) (*Session, error) {
+	return c.executeCommandWithRetry(ctx, taskID, container, command, DefaultExecuteCommandAttempts, DefaultExecuteCommandRetryInterval)
+}
+
+func (c *Client) executeCommandWithRetry(ctx context.Context, taskID, container, command string, attempts int, retryInterval time.Duration) (*Session, error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		session, err := c.ExecuteCommand(ctx, taskID, container, command)
+		if err == nil {
+			return session, nil
+		}
+		lastErr = err
+		if !isExecuteCommandRetryable(err) || attempt == attempts {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(retryInterval):
+		}
+	}
+	return nil, lastErr
+}
+
+func isExecuteCommandRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) && apiErr.ErrorCode() == "TargetNotConnectedException" {
+		return true
+	}
+	// ExecuteCommand wraps the API error; match the stable exception name in the chain.
+	return strings.Contains(err.Error(), "TargetNotConnected")
 }
