@@ -14,7 +14,7 @@ Application: `rosa-seaplane-zoa` ([Konflux UI](https://konflux-ui.apps.kflux-prd
 
 The `zoa` CLI is built into the `zoa-runner` image and released via `.github/workflows/release-cli.yml` — no separate Konflux component.
 
-Lambda and runner were registered in [konflux-release-data MR !21738](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/21738) and renamed to `rosa-seaplane-zoa-lambda` / `rosa-seaplane-zoa-runner` under application `rosa-seaplane-zoa`. `rosa-seaplane-zoa-boundary` uses the same application, Enterprise Contract policy (`app-interface-standard`), and release admission. Images use UBI9 bases. Boundary is not a hermetic build: the image downloads kubectl, the AWS CLI, and Claude Code at build time.
+Lambda and runner were registered in [konflux-release-data MR !21738](https://gitlab.cee.redhat.com/releng/konflux-release-data/-/merge_requests/21738) and renamed to `rosa-seaplane-zoa-lambda` / `rosa-seaplane-zoa-runner` under application `rosa-seaplane-zoa`. `rosa-seaplane-zoa-boundary` uses the same application, Enterprise Contract policy (`app-interface-standard`), and release admission. Images use UBI9 bases. Boundary is not a hermetic build: the image downloads kubectl, the AWS CLI, and Claude Code at build time. Its pipelines build `linux/x86_64` only, because `Containerfile.boundary` pins ubi-minimal and go-toolset to amd64 digests. An arm64 platform build rejects those digests.
 
 ## Pipelines
 
