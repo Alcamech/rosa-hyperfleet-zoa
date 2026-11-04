@@ -27,7 +27,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// alerts_test.go / recording_rules_test.go (loaded in Thanos Ruler only).
 	Context("infrastructure metrics", func() {
 
-		It("should have Lambda invocation metrics for ZOA functions", func() {
+		It("should have Lambda invocation metrics for ZOA functions", Label("smoke"), func() {
 			query := `count(aws_lambda_invocations_sum{dimension_FunctionName=~".*-zoa-(api|worker)"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -36,7 +36,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_lambda_invocations_sum for ZOA Lambda functions")
 		})
 
-		It("should have Lambda error metrics for ZOA functions", func() {
+		It("should have Lambda error metrics for ZOA functions", Label("smoke"), func() {
 			query := `count(aws_lambda_errors_sum{dimension_FunctionName=~".*-zoa-(api|worker|access)"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -45,7 +45,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_lambda_errors_sum (nilToZero) for api/worker/access — feeds zoa:lambda_* recording rules")
 		})
 
-		It("should have Lambda throttle metrics for ZOA functions", func() {
+		It("should have Lambda throttle metrics for ZOA functions", Label("smoke"), func() {
 			query := `count(aws_lambda_throttles_sum{dimension_FunctionName=~".*-zoa-(api|worker|access)"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -54,7 +54,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_lambda_throttles_sum (nilToZero) — feeds zoa:lambda_throttle_rate")
 		})
 
-		It("should have SQS DLQ depth metrics", func() {
+		It("should have SQS DLQ depth metrics", Label("smoke"), func() {
 			query := `count(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~".*-zoa-dlq"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -63,7 +63,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected DLQ depth metric (nilToZero) — feeds ZOADLQGrowing alert")
 		})
 
-		It("should have reconciler tick metrics", func() {
+		It("should have reconciler tick metrics", Label("smoke"), func() {
 			query := `count(aws_zoa_reconciler_last_run_maximum) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -72,7 +72,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_zoa_reconciler_last_run_maximum (EMF ReconcilerLastRun)")
 		})
 
-		It("should have ECS boundary TaskCount metrics from Container Insights", func() {
+		It("should have ECS boundary TaskCount metrics from Container Insights", Label("smoke"), func() {
 			query := `count(aws_ecs_containerinsights_task_count_maximum{dimension_ClusterName=~".*-zoa-boundary"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -90,7 +90,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// executes both sync and async TAs against RC and MC targets.
 	Context("execution metrics", func() {
 
-		It("should have execution count metrics", func() {
+		It("should have execution count metrics", Label("smoke"), func() {
 			query := `count(aws_zoa_execution_count_sum) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -99,7 +99,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_zoa_execution_count_sum after TA executions")
 		})
 
-		It("should have execution metrics with Status dimension", func() {
+		It("should have execution metrics with Status dimension", Label("smoke"), func() {
 			query := `count(aws_zoa_execution_count_sum{dimension_Status="succeeded"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -108,7 +108,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected dimension_Status=succeeded on execution metrics")
 		})
 
-		It("should have HTTP request metrics", func() {
+		It("should have HTTP request metrics", Label("smoke"), func() {
 			query := `count(aws_zoa_http_request_count_sum) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -117,7 +117,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_zoa_http_request_count_sum after API calls")
 		})
 
-		It("should have Access HTTP request metrics after session smoke", func() {
+		It("should have Access HTTP request metrics after session smoke", Label("smoke"), func() {
 			query := `count(aws_zoa_http_request_count_sum{dimension_HandlerMode="access"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -126,13 +126,14 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected Access plane HTTP metrics (session start/list/terminate in smoke e2e)")
 		})
 
-		It("should have identity bridge lookup metrics", func() {
-			query := `count(aws_zoa_identity_bridge_lookup_sum) > 0`
+		// Full functional only: boundary exec-script runs zoa run inside the task (Outcome=hit).
+		It("should have identity bridge lookup metrics", Label("full"), func() {
+			query := `count(aws_zoa_identity_bridge_lookup_sum{dimension_Outcome=~"hit|miss|error"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
 				return resp.Status == "success" && len(resp.Data.Result) > 0
 			}, "5m", "15s").Should(BeTrue(),
-				"Expected aws_zoa_identity_bridge_lookup_sum (hit/miss/error/skipped) after API TA traffic")
+				"Expected aws_zoa_identity_bridge_lookup_sum with hit/miss/error after boundary API TA traffic")
 		})
 	})
 
@@ -143,7 +144,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// RC/MC via cluster_type on externalLabels (not cluster name patterns).
 	Context("cluster labels", func() {
 
-		It("should have EMF metrics from the regional cluster", func() {
+		It("should have EMF metrics from the regional cluster", Label("smoke"), func() {
 			query := `count(aws_zoa_reconciler_last_run_maximum{cluster_type="regional-cluster"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -152,7 +153,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected ZOA EMF metrics with cluster_type=regional-cluster")
 		})
 
-		It("should have EMF metrics from management clusters", func() {
+		It("should have EMF metrics from management clusters", Label("smoke"), func() {
 			query := `count(aws_zoa_reconciler_last_run_maximum{cluster_type="management-cluster"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -161,7 +162,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected ZOA EMF metrics with cluster_type=management-cluster")
 		})
 
-		It("should have Lambda metrics from the regional cluster", func() {
+		It("should have Lambda metrics from the regional cluster", Label("smoke"), func() {
 			query := `count(aws_lambda_invocations_sum{dimension_FunctionName=~".*-zoa-.*", cluster_type="regional-cluster"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -170,7 +171,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected Lambda ZOA metrics with cluster_type=regional-cluster")
 		})
 
-		It("should have Lambda metrics from management clusters", func() {
+		It("should have Lambda metrics from management clusters", Label("smoke"), func() {
 			query := `count(aws_lambda_invocations_sum{dimension_FunctionName=~".*-zoa-.*", cluster_type="management-cluster"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -184,7 +185,7 @@ var _ = Describe("ZOA Metrics", func() {
 	// only Lambda tag_Cluster ids. After session smoke, at least one series should exist.
 	Context("boundary observability recording rules", func() {
 
-		It("should have zoa:access_availability after Access HTTP traffic", func() {
+		It("should have zoa:access_availability after Access HTTP traffic", Label("smoke"), func() {
 			query := `count(zoa:access_availability) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -193,7 +194,7 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected zoa:access_availability from Access session-plane HTTP")
 		})
 
-		It("should have zoa:lambda_invocations_combined when Lambda traffic exists", func() {
+		It("should have zoa:lambda_invocations_combined when Lambda traffic exists", Label("smoke"), func() {
 			query := `count(zoa:lambda_invocations_combined) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -230,7 +231,7 @@ var _ = Describe("ZOA Metrics", func() {
 			GinkgoWriter.Printf("management clusters: %v\n", managementClusters)
 		})
 
-		ruleNames := []string{
+		ruleNamesSmoke := []string{
 			"zoa:reconciler_last_run",
 			"zoa:reconciler_tick_count",
 			"zoa:lambda_invocations_combined",
@@ -241,6 +242,10 @@ var _ = Describe("ZOA Metrics", func() {
 			"zoa:ta_success_rate",
 			"zoa:ta_total_executions",
 			"zoa:api_availability",
+		}
+
+		// Full functional only: recording rule needs bridge Outcome=hit (boundary exec-script).
+		ruleNamesFull := []string{
 			"zoa:identity_bridge_hit_rate",
 		}
 
@@ -257,12 +262,21 @@ var _ = Describe("ZOA Metrics", func() {
 			}
 		}
 
-		for _, rule := range ruleNames {
+		for _, rule := range ruleNamesSmoke {
 			rule := rule
-			It("should have "+rule+" on every regional cluster", func() {
+			It("should have "+rule+" on every regional cluster", Label("smoke"), func() {
 				assertRuleOnAllClusters(rule, regionalClusters, "regional")
 			})
-			It("should have "+rule+" on every management cluster", func() {
+			It("should have "+rule+" on every management cluster", Label("smoke"), func() {
+				assertRuleOnAllClusters(rule, managementClusters, "management")
+			})
+		}
+		for _, rule := range ruleNamesFull {
+			rule := rule
+			It("should have "+rule+" on every regional cluster", Label("full"), func() {
+				assertRuleOnAllClusters(rule, regionalClusters, "regional")
+			})
+			It("should have "+rule+" on every management cluster", Label("full"), func() {
 				assertRuleOnAllClusters(rule, managementClusters, "management")
 			})
 		}

@@ -17,9 +17,10 @@ Both suites use **Ginkgo labels** to choose which specs a Makefile target runs:
 
 - **`Label("smoke")`**: tags specs that are safe and fast enough for **consumer presubmits**
   (`rosa-seaplane` / `rosa-seaplane-api` call `make test-e2e-smoke`, which applies
-  `--label-filter=smoke`). Smoke-labeled specs **also run** under **`make test-e2e`** and
+  `--label-filter=smoke` to **both** functional and monitoring suites). Smoke-labeled specs **also run** under **`make test-e2e`** and
   **`make test-e2e-zoa`** (no label filter) — nightlies, ZOA `on-demand-e2e`, and standing-env
   jobs exercise the full functional suite, which includes every smoke spec plus deep TA coverage.
+- **`Label("full")`** (monitoring only): identity bridge metrics and recording-rule value checks that require boundary exec-script traffic; skipped by `make test-e2e-smoke`.
 - **Full functional** (default ginkgo run): all specs in `test/e2e/`, smoke-labeled or not.
 
 ### Makefile Targets
@@ -56,12 +57,9 @@ against `kube-system/coredns`, cooldown enforcement, all CLI commands (`get`, `r
 
 ### Monitoring Suite Details
 
-**Smoke**: recording rules loaded in Thanos Ruler, alerting rules loaded, infrastructure
-metrics present (Lambda invocations, reconciler ticks). These are always-on metrics that do
-not depend on TA executions.
+**Smoke** (`make test-e2e-smoke`, functional and monitoring both use `--label-filter=smoke`): recording rules loaded in Thanos Ruler, alerting rules loaded, infrastructure metrics present, execution metrics from smoke TAs and Access session lifecycle, recording rule **values** that do not require boundary exec-script. Identity bridge metric/value checks are **`Label("full")` only** (boundary `session start --exec-script` + in-task `zoa run`).
 
-**Full**: all smoke checks plus execution metrics with expected dimensions (Status, Mode,
-Scope, Type), recording rule values populated, no critical alerts in `firing` state.
+**Full** (`make test-e2e`, monitoring runs without label filter): all smoke monitoring specs plus identity bridge raw metrics and `zoa:identity_bridge_hit_rate` recording rule values, and no critical alerts in `firing` state when those tests exist.
 
 See [docs/observability.md](observability.md) for the metrics catalog and alerting philosophy.
 

@@ -131,6 +131,7 @@ define run_e2e_monitoring
 		--timeout=$(E2E_MONITORING_TIMEOUT) \
 		--junit-report=$(E2E_MONITORING_JUNIT) \
 		--output-dir=$(TEST_OUTPUT_DIR) \
+		$(1) \
 		./test/e2e-monitoring
 endef
 
@@ -155,15 +156,16 @@ endef
 test-e2e: build $(GINKGO)
 	$(call run_e2e_parallel,--timeout=20m)
 	@echo ""; echo "=== ZOA Monitoring E2E ==="
-	$(call run_e2e_monitoring)
+	$(call run_e2e_monitoring,)
 
 # test-e2e-smoke runs only specs with Label("smoke") — fast path for rosa-seaplane/-api presubmits.
 # Includes core TA checks and Access laptop session specs (deployments, targets, session lifecycle when eph).
 # Boundary exec-script e2e is full-only (make test-e2e / test-e2e-zoa, no smoke label).
+# Monitoring smoke excludes Label("full") specs (identity bridge metrics need boundary exec-script).
 test-e2e-smoke: build $(GINKGO)
 	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
-	@echo ""; echo "=== ZOA Monitoring E2E ==="
-	$(call run_e2e_monitoring)
+	@echo ""; echo "=== ZOA Monitoring E2E (smoke) ==="
+	$(call run_e2e_monitoring,--label-filter=smoke)
 
 # test-e2e-zoa runs only the ZOA functional e2e suite (no monitoring).
 test-e2e-zoa: build $(GINKGO)
@@ -176,7 +178,7 @@ test-e2e-zoa-smoke: build $(GINKGO)
 # test-e2e-monitoring runs only the observability validation suite.
 # Requires RHOBS_API_URL (fails if unset). See docs/observability.md.
 test-e2e-monitoring: $(GINKGO)
-	$(call run_e2e_monitoring)
+	$(call run_e2e_monitoring,)
 
 # =============================================================================
 # Code Quality

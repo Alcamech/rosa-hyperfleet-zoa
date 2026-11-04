@@ -31,7 +31,7 @@ var zoaRecordingRules = []string{
 var _ = Describe("ZOA Recording Rules", func() {
 	for _, rule := range zoaRecordingRules {
 		rule := rule
-		It("should have "+rule+" loaded in Thanos Ruler", func() {
+		It("should have "+rule+" loaded in Thanos Ruler", Label("smoke"), func() {
 			Eventually(func() bool {
 				return hasRule(client, "record", rule)
 			}, "5m", "15s").Should(BeTrue(),
