@@ -470,9 +470,9 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 type auditOpts struct {
-	reason string
-	force  bool
-	dryRun bool
+	reason                         string
+	force                          bool
+	dryRun                         bool
 	operator, signerARN, sessionID string
 	identityResolved               bool
 }
