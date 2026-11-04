@@ -11,7 +11,7 @@
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:312b02a8f8ad5bdd219849c3e854cc5191c92fb7b8ce9b30fe2daed2de849094
 
 # Pinned linux/amd64 from go-toolset:1.26.7-1790174511. Mintmaker/Renovate updates digest.
-ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:5ee38c1f5fc2dfa5c5257928912cc26857f4186c07d836271a2d748dc79b083a
+ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset@sha256:3eb2cd0fffcd7a8aba6e6395cdfce68bf6a555f5eb8aaf05a58907dcd9c954d0
 
 # --------------------------------------------------------------------------
 # builder — Go build (zoa CLI)
@@ -78,7 +78,7 @@ ARG TARGETARCH=amd64
 # aws/aws-cli publishes stable versions as git tags, not GitHub Releases.
 # MintMaker matches this ARG via renovate.json (github-tags, x.y.z only).
 # renovate: datasource=github-tags depName=aws/aws-cli
-ARG AWS_CLI_VERSION="2.27.22"
+ARG AWS_CLI_VERSION="2.39.3"
 
 RUN microdnf install --assumeyes --nodocs unzip && microdnf clean all
 
