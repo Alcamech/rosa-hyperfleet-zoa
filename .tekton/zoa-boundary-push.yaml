@@ -22,11 +22,10 @@ spec:
     value: '{{revision}}'
   - name: output-image
     value: quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-zoa-boundary:{{revision}}
-  # Containerfile.boundary pins ubi-minimal and go-toolset to amd64 digests.
-  # An arm64 build rejects those digests. This image runs on Fargate x86_64.
   - name: build-platforms
     value:
     - linux/x86_64
+    - linux/arm64
   - name: dockerfile
     value: Containerfile.boundary
   - name: path-context
