@@ -217,7 +217,6 @@ func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "missing_target", "target is required")
 		return
 	}
-	setAccessMetricsCluster(w, req.Target)
 
 	reasonValue, err := reason.Require(req.Reason)
 	if err != nil {
@@ -241,6 +240,7 @@ func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusNotFound, "target_not_found", fmt.Sprintf("target %q not found", req.Target))
 		return
 	}
+	setAccessMetricsCluster(w, req.Target)
 
 	sessionDuration, err := h.sessionDurationFromRequest(req.TimeoutHours)
 	if err != nil {
