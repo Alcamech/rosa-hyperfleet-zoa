@@ -6,7 +6,7 @@ Image: **`zoa-boundary`** (`Containerfile.boundary`). Konflux component **`rosa-
 
 - **Multi-stage build** — compilers and download tools stay in builder stages; **final image has no curl/wget**.
 - **Checksum-verified downloads** — `kubectl` (`.sha256` sidecar), Claude Code (`SHASUMS256.txt`), AWS CLI v2 (version pin + post-install version match — AWS does not publish per-version SHA256 sidecars).
-- **Architecture-aware binaries** — `kubectl`, AWS CLI v2, and Claude Code use `TARGETARCH` (today CI builds `linux/amd64` only; arm64-ready for a future multi-arch PR).
+- **Architecture-aware binaries** — CI builds `linux/amd64` and `linux/arm64`; the AWS CLI download maps these to its `x86_64` and `aarch64` archive names, respectively.
 - **Non-root runtime** — user `sre` (uid 1000); ECS task definition sets `user: 1000`.
 - **ECS Exec** — `script` + `cat` from `util-linux` / coreutils; entrypoint fails closed if missing.
 
