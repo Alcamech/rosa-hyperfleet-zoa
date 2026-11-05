@@ -84,8 +84,11 @@ RUN microdnf install --assumeyes --nodocs unzip && microdnf clean all
 
 WORKDIR /aws-dl
 
-RUN AWS_ARCH="${TARGETARCH}" \
-    && if [ "${AWS_ARCH}" = "amd64" ]; then AWS_ARCH="x86_64"; fi \
+RUN case "${TARGETARCH}" in \
+        amd64) AWS_ARCH="x86_64" ;; \
+        arm64) AWS_ARCH="aarch64" ;; \
+        *) echo "ERROR: unsupported AWS CLI target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
     && curl --silent --location --fail \
         "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}-${AWS_CLI_VERSION}.zip" \
         --output awscli.zip \
