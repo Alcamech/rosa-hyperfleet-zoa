@@ -411,6 +411,39 @@ func TestHandleCreate_WhenMaxConcurrentExceeded_ItShouldReturn429(t *testing.T) 
 	}
 }
 
+func TestHandleCreate_WhenIdentityBridgeMiss_ItShouldStillAcceptDispatch(t *testing.T) {
+	execStore := &mockExecStore{}
+	auditCapture := &auditCapturingStoreHandler{}
+	h := testHandlerWithCustomAudit(execStore, auditCapture)
+	h.cfg.TargetCluster = testTargetCluster
+	h.sessionStore = &mockSessionStore{
+		getByTaskIDFn: func(_ context.Context, _ string) (*store.Session, error) {
+			return nil, nil
+		},
+	}
+
+	body := createRequest{
+		Reason:        "TEST-12345",
+		ExecutionMode: "async",
+		Params:        map[string]string{"namespace": "default"},
+	}
+	headers := map[string]string{
+		"__caller_arn": testBoundaryTaskARN(),
+		"__account_id": testCallerAccountID,
+	}
+	rr := doRequest(h, "POST", "/api/v0/trusted-actions/test-read/run", body, headers)
+
+	if rr.Code != http.StatusAccepted && rr.Code != http.StatusOK {
+		t.Fatalf("expected 2xx on bridge miss (unresolved attribution), got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(auditCapture.recorded) == 0 {
+		t.Fatal("expected audit entry")
+	}
+	if auditCapture.recorded[0].Operator != testECSTaskID {
+		t.Errorf("expected operator=task id on miss, got %q", auditCapture.recorded[0].Operator)
+	}
+}
+
 func TestHandleCreate_WhenCooldownRejected_ItShouldRecordAuditWith429(t *testing.T) {
 	// Cooldown is per (target, action, params) — mock must have matching params
 	execStore := &mockExecStore{

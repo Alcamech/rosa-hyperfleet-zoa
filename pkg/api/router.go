@@ -64,28 +64,54 @@ func WithSessionStore(s store.SessionStore) HandlerOption {
 	return func(h *Handler) { h.sessionStore = s }
 }
 
-// resolveIdentity returns operator, signer_arn, and session_id for audit/executions.
+// resolveIdentityResult resolves attribution from the IAM authorizer caller ARN and emits bridge metrics once.
 // See docs/boundary/identity-bridge.md.
-func (h *Handler) resolveIdentity(r *http.Request) (operator, signerARN, sessionID string) {
-	signerARN = authenticatedCallerARN(r)
+func (h *Handler) resolveIdentityResult(r *http.Request) (*IdentityResult, string) {
+	signerARN := authenticatedCallerARN(r)
 	if signerARN == "" {
-		return "", "", ""
+		return nil, ""
 	}
 
 	result, err := ResolveIdentity(r.Context(), signerARN, BoundaryTaskRoleName(h.cfg.TargetCluster), h.sessionStore)
 	if err != nil {
 		h.logger.Warn("identity resolution failed", "signer_arn", signerARN, "error", err)
-		return signerARN, signerARN, ""
+		return &IdentityResult{Operator: signerARN}, signerARN
+	}
+
+	h.emitIdentityBridgeObservability(r, signerARN, result)
+	return result, signerARN
+}
+
+func (h *Handler) emitIdentityBridgeObservability(r *http.Request, signerARN string, result *IdentityResult) {
+	switch result.Outcome {
+	case BridgeOutcomeHit, BridgeOutcomeMiss, BridgeOutcomeError, BridgeOutcomeSkipped:
+		metrics.EmitIdentityBridgeLookup(h.cfg.TargetCluster, string(result.Outcome))
 	}
 
 	switch result.Outcome {
 	case BridgeOutcomeMiss, BridgeOutcomeError:
-		h.logger.Warn("identity bridge unresolved: operator set to ecs task id",
+		fields := []any{
 			"signer_arn", signerARN,
 			"outcome", string(result.Outcome),
-			"operator", result.Operator)
+			"operator", result.Operator,
+			"target_cluster", h.cfg.TargetCluster,
+		}
+		if requestID := r.Header.Get("X-Request-ID"); requestID != "" {
+			fields = append(fields, "request_id", requestID)
+		}
+		if sessionName, roleName, err := ExtractSREIdentity(signerARN); err == nil && looksLikeECSTaskID(sessionName) {
+			fields = append(fields, "task_id", sessionName, "boundary_task_role", roleName)
+		}
+		h.logger.Warn("identity bridge unresolved: operator set to ecs task id", fields...)
 	}
+}
 
+// resolveIdentity returns operator, signer_arn, and session_id for audit/executions.
+func (h *Handler) resolveIdentity(r *http.Request) (operator, signerARN, sessionID string) {
+	result, signerARN := h.resolveIdentityResult(r)
+	if result == nil {
+		return "", "", ""
+	}
 	operator = result.Operator
 	sessionID = result.SessionID
 	if operator == "" {
@@ -142,7 +168,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode     int
+	metricsCluster string // Access EMF Cluster dim: ZOA target id (audit TARGET)
+}
+
+// setAccessMetricsCluster tags the in-flight Access HTTP request with a ZOA target id for EMF.
+func setAccessMetricsCluster(w http.ResponseWriter, targetCluster string) {
+	if targetCluster == "" {
+		return
+	}
+	if rw, ok := w.(*responseWriter); ok {
+		rw.metricsCluster = targetCluster
+	}
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -433,9 +470,11 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 type auditOpts struct {
-	reason string
-	force  bool
-	dryRun bool
+	reason                         string
+	force                          bool
+	dryRun                         bool
+	operator, signerARN, sessionID string
+	identityResolved               bool
 }
 
 type AuditOption func(*auditOpts)
@@ -452,6 +491,15 @@ func withDryRun(dryRun bool) AuditOption {
 	return func(o *auditOpts) { o.dryRun = dryRun }
 }
 
+func withResolvedIdentity(operator, signerARN, sessionID string) AuditOption {
+	return func(o *auditOpts) {
+		o.operator = operator
+		o.signerARN = signerARN
+		o.sessionID = sessionID
+		o.identityResolved = true
+	}
+}
+
 // recordAudit persists an audit entry for the request. Identity is resolved
 // via the identity bridge (task UUID → sessions table for boundary callers,
 // direct ARN extraction for laptop callers). Both the resolved operator and
@@ -465,7 +513,12 @@ func (h *Handler) recordAudit(r *http.Request, statusCode int, action, execution
 		opt(&o)
 	}
 	accountID := authenticatedAccountID(r)
-	operator, signerARN, sessionID := h.resolveIdentity(r)
+	var operator, signerARN, sessionID string
+	if o.identityResolved {
+		operator, signerARN, sessionID = o.operator, o.signerARN, o.sessionID
+	} else {
+		operator, signerARN, sessionID = h.resolveIdentity(r)
+	}
 	entry := &store.AuditEntry{
 		AccountID:     accountID,
 		Timestamp:     time.Now().Format(time.RFC3339Nano),

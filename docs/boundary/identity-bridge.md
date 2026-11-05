@@ -132,7 +132,7 @@ Sustained miss/error alerts mean **fix mapping or timing** (misconfiguration, ra
 | ------------ | ------------------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------- |
 | `operator`   | Session owner id (e.g. `slopezma`, CI principal) | At `session_start` | Bridge hit; or ECS task id when [bridge unresolved](#bridge-unresolved-miss-or-dynamo-error) |
 | `signer_arn` | SigV4 caller ARN for this event                  | Invoker at start   | **Per-task** task-role ARN on boundary `zoa run`                                             |
-| `session_id` | **ZOA boundary** session UUID                    | Table PK           | Set when bridge hits; **empty/omitted** for direct API callers (no boundary session)       |
+| `session_id` | **ZOA boundary** session UUID                    | Table PK           | Set when bridge hits; **empty/omitted** for direct API callers (no boundary session)         |
 | `account_id` | Caller AWS account                               | At start           | On API requests                                                                              |
 
 **Not identity:** `reason` (change ticket on session / TA), `task_id` / `task_arn` (ECS resources on the **session row** only), **`exec_session_ids`** (SSM Exec ids for CloudWatch only).
@@ -146,6 +146,10 @@ Sustained miss/error alerts mean **fix mapping or timing** (misconfiguration, ra
 | Access session writes | `pkg/api/access.go`                                |
 | Session store + GSI   | `pkg/store/session.go` — `GetByTaskID`             |
 | Audit on API          | `pkg/api/router.go`, `pkg/api/dispatch.go`         |
+
+## Observability
+
+Each bridge resolution emits **`IdentityBridgeLookup`** EMF with dimension **`Outcome`** (`hit`, `miss`, `error`, or `skipped`). The **`skipped`** outcome covers callers that never use the boundary task-role path (laptop/e2e); it is excluded from the hit-rate SLO. Dashboard panels live under **ZOA HTTP API**; alerts and recording rules are defined in rosa-seaplane — see [Observability](../observability.md#identity-bridge).
 
 ## Security properties
 

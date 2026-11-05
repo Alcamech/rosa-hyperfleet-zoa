@@ -168,6 +168,7 @@ func testAccessHandler(sessionStore store.SessionStore, targetStore store.Target
 	cfg := &config.Config{
 		HandlerMode:               "access",
 		Region:                    "us-east-1",
+		DeploymentName:            "us-east-1-eph-test",
 		BoundaryECSExecCommand:    "runuser -u sre -- /bin/bash -l",
 		ExecScopedRoleARN:         "arn:aws:iam::123:role/exec-scoped",
 		SessionIdleTimeoutSeconds: 3600,

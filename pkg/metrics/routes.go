@@ -30,6 +30,8 @@ func NormalizeRoute(method, path string) string {
 		return method + " /api/v0/sessions/terminate/{id}"
 	case strings.HasPrefix(path, "/api/v0/sessions/join/"):
 		return method + " /api/v0/sessions/join/{id}"
+	case strings.HasPrefix(path, "/api/v0/sessions/exec-attached/"):
+		return method + " /api/v0/sessions/exec-attached/{id}"
 	case strings.HasPrefix(path, "/api/v0/approve/"):
 		return method + " /api/v0/approve/{id}"
 	case strings.HasPrefix(path, "/api/v0/reject/"):
@@ -89,10 +91,20 @@ func StatusClass(statusCode int) string {
 
 // EmitHTTPRequest records a completed HTTP request (API Lambda only).
 func EmitHTTPRequest(cluster, method, path string, statusCode int, durationMs int64) {
+	emitHTTPRequest(cluster, "api", method, path, statusCode, durationMs)
+}
+
+// EmitAccessHTTPRequest records a completed Access Lambda HTTP request.
+// cluster is the ZOA target id (same value as audit TARGET), not DEPLOYMENT_NAME.
+func EmitAccessHTTPRequest(targetCluster, method, path string, statusCode int, durationMs int64) {
+	emitHTTPRequest(targetCluster, "access", method, path, statusCode, durationMs)
+}
+
+func emitHTTPRequest(cluster, handlerMode, method, path string, statusCode int, durationMs int64) {
 	routeTemplate := NormalizeRoute(method, path)
 	dims := map[string]string{
 		"Cluster":       cluster,
-		"HandlerMode":   "api",
+		"HandlerMode":   handlerMode,
 		"Method":        method,
 		"RouteTemplate": routeTemplate,
 		"StatusClass":   StatusClass(statusCode),
@@ -199,6 +211,43 @@ func EmitGC(cluster string, durationMs int64, phaseErrors int) {
 			"GCDuration": Milliseconds(durationMs),
 			"GCErrors":   Count(phaseErrors),
 			"GCLastRun":  Seconds(float64(time.Now().Unix())),
+		},
+	)
+}
+
+// Identity bridge lookup outcomes (API Lambda). Low cardinality: Cluster + Outcome only.
+const (
+	IdentityBridgeOutcomeHit     = "hit"
+	IdentityBridgeOutcomeMiss    = "miss"
+	IdentityBridgeOutcomeError   = "error"
+	IdentityBridgeOutcomeSkipped = "skipped" // non-boundary caller (e.g. laptop CI); no Dynamo lookup
+)
+
+// EmitIdentityBridgeLookup records one ResolveIdentity attribution path (EMF Count → CloudWatch Sum).
+// Use rates/ratios in Prometheus (miss/(hit+miss+error), skipped volume) — not a gauge.
+func EmitIdentityBridgeLookup(cluster, outcome string) {
+	Emit(
+		map[string]string{
+			"Cluster": cluster,
+			"Outcome": outcome,
+		},
+		map[string]MetricValue{
+			"IdentityBridgeLookup": Count(1),
+		},
+	)
+}
+
+// EmitReaper records one reaper tick: duration, error count, and last-run gauge (5m schedule).
+func EmitReaper(cluster string, durationMs int64, phaseErrors int) {
+	Emit(
+		map[string]string{
+			"Cluster":     cluster,
+			"HandlerMode": "reaper",
+		},
+		map[string]MetricValue{
+			"ReaperDuration": Milliseconds(durationMs),
+			"ReaperErrors":   Count(phaseErrors),
+			"ReaperLastRun":  Seconds(float64(time.Now().Unix())),
 		},
 	)
 }

@@ -47,12 +47,26 @@ type createResponse struct {
 
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionName string) {
 	ctx := r.Context()
-	operator, signerARN, sessionID := h.resolveIdentity(r)
+	identity, signerARN := h.resolveIdentityResult(r)
+	if !ensureAuthenticatedIAM(w, r) {
+		return
+	}
+	if identity == nil {
+		identity = &IdentityResult{Operator: signerARN}
+	}
+	operator := identity.Operator
+	sessionID := identity.SessionID
+	if operator == "" {
+		operator = signerARN
+	}
+	idOpts := func(opts ...AuditOption) []AuditOption {
+		return append([]AuditOption{withResolvedIdentity(operator, signerARN, sessionID)}, opts...)
+	}
 	accountID := authenticatedAccountID(r)
 
 	action, ok := actions.Get(actionName)
 	if !ok {
-		h.recordAudit(r, http.StatusNotFound, actionName, "")
+		h.recordAudit(r, http.StatusNotFound, actionName, "", idOpts()...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionActionNotFound)
 		writeError(w, http.StatusNotFound, "action_not_found", fmt.Sprintf("action %q not found", actionName))
 		return
@@ -60,7 +74,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 
 	const maxDispatchBodyBytes = 64 << 10 // 64 KiB
 	if r.ContentLength > maxDispatchBodyBytes {
-		h.recordAudit(r, http.StatusRequestEntityTooLarge, actionName, "")
+		h.recordAudit(r, http.StatusRequestEntityTooLarge, actionName, "", idOpts()...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds maximum allowed size")
 		return
@@ -69,7 +83,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 
 	var req createRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "")
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", idOpts()...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
@@ -77,7 +91,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 
 	reasonValue, err := reason.Require(req.Reason)
 	if err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		code := "missing_reason"
 		if strings.TrimSpace(req.Reason) != "" {
@@ -91,7 +105,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 	meta := action.Metadata()
 
 	if err := validateParams(meta, req.Params); err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
 		return
@@ -118,7 +132,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 	}
 
 	if err := h.executor.ValidateAction(ctx, action, req.Params); err != nil {
-		h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+		h.recordAudit(r, http.StatusBadRequest, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 		metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionValidationFailed)
 		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
@@ -144,7 +158,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		// Exclude dry-runs (they don't count as real executions)
 		matching := filterMatchingParams(recent, req.Params)
 		if len(matching) > 0 {
-			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 			metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionWriteCooldown)
 			writeError(w, http.StatusTooManyRequests, "write_cooldown",
 				fmt.Sprintf("action %q with these params was executed within the last %ds; use force=true to override", actionName, cooldown))
@@ -161,7 +175,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 			return
 		}
 		if activeCount >= h.cfg.MaxConcurrentPerTarget {
-			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+			h.recordAudit(r, http.StatusTooManyRequests, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 			metrics.EmitRejection(h.cfg.TargetCluster, metrics.RejectionMaxConcurrent)
 			writeError(w, http.StatusTooManyRequests, "max_concurrent",
 				fmt.Sprintf("target %q has %d active executions (max %d); use force=true to override", h.cfg.TargetCluster, activeCount, h.cfg.MaxConcurrentPerTarget))
@@ -179,7 +193,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		}
 		if req.ExecutionMode != meta.ExecutionMode {
 			if meta.DisallowExecutionModeOverride {
-				h.recordAudit(r, http.StatusBadRequest, actionName, "", withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+				h.recordAudit(r, http.StatusBadRequest, actionName, "", idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 				writeError(w, http.StatusBadRequest, "execution_mode_locked",
 					fmt.Sprintf("action %q requires execution_mode=%q and cannot be overridden", actionName, meta.ExecutionMode))
 				return
@@ -245,7 +259,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, actionNam
 		return
 	}
 
-	h.recordAudit(r, http.StatusAccepted, executedAction, executionID, withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))
+	h.recordAudit(r, http.StatusAccepted, executedAction, executionID, idOpts(withReason(req.Reason), withForce(req.Force), withDryRun(req.DryRun))...)
 
 	if execMode == "sync" {
 		h.executeSyncAndRespond(w, ctx, exec, action, req.Params, req.Force)

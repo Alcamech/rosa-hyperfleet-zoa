@@ -18,6 +18,7 @@ import (
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/boundaryexec"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/config"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/execcreds"
+	"github.com/openshift-online/rosa-seaplane-zoa/pkg/metrics"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/reason"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/store"
 	"github.com/openshift-online/rosa-seaplane-zoa/pkg/targetroles"
@@ -104,11 +105,13 @@ func NewAccessHandler(deps AccessDeps) *AccessHandler {
 
 func (h *AccessHandler) registerRoutes() {
 	h.mux.HandleFunc("GET "+PathHealth, func(w http.ResponseWriter, _ *http.Request) {
+		setAccessMetricsDeployment(w, h)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	h.mux.HandleFunc("GET "+PathVersion, func(w http.ResponseWriter, _ *http.Request) {
+		setAccessMetricsDeployment(w, h)
 		info := version.Get()
 		writeJSON(w, http.StatusOK, struct {
 			version.Info
@@ -132,7 +135,33 @@ func (h *AccessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ensureAuthenticatedIAM(w, r) {
 		return
 	}
-	h.mux.ServeHTTP(w, r)
+	start := time.Now()
+	rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+	h.mux.ServeHTTP(rw, r)
+
+	cluster := h.resolveAccessHTTPMetricsCluster(rw)
+	if cluster == "" {
+		cluster = "unknown"
+	}
+	metrics.EmitAccessHTTPRequest(cluster, r.Method, r.URL.Path, rw.statusCode, time.Since(start).Milliseconds())
+}
+
+func (h *AccessHandler) accessDeploymentMetricsCluster() string {
+	if h.cfg != nil && h.cfg.DeploymentName != "" {
+		return h.cfg.DeploymentName
+	}
+	return ""
+}
+
+func setAccessMetricsDeployment(w http.ResponseWriter, h *AccessHandler) {
+	setAccessMetricsCluster(w, h.accessDeploymentMetricsCluster())
+}
+
+func (h *AccessHandler) resolveAccessHTTPMetricsCluster(rw *responseWriter) string {
+	if rw.metricsCluster != "" {
+		return rw.metricsCluster
+	}
+	return h.accessDeploymentMetricsCluster()
 }
 
 type sessionStartRequest struct {
@@ -211,6 +240,7 @@ func (h *AccessHandler) handleSessionStart(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusNotFound, "target_not_found", fmt.Sprintf("target %q not found", req.Target))
 		return
 	}
+	setAccessMetricsCluster(w, req.Target)
 
 	sessionDuration, err := h.sessionDurationFromRequest(req.TimeoutHours)
 	if err != nil {
@@ -345,6 +375,7 @@ func (h *AccessHandler) ensureBoundaryTask(ctx context.Context, session *store.S
 }
 
 func (h *AccessHandler) handleSessionList(w http.ResponseWriter, r *http.Request) {
+	setAccessMetricsDeployment(w, h)
 	ctx := r.Context()
 	q := r.URL.Query()
 	operatorARN := authenticatedCallerARN(r)
@@ -438,6 +469,7 @@ func (h *AccessHandler) handleSessionTerminate(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "not_found", "session not found")
 		return
 	}
+	setAccessMetricsCluster(w, session.TargetCluster)
 
 	if session.Operator != username {
 		writeError(w, http.StatusForbidden, "forbidden", "only the session owner can terminate it")
@@ -520,6 +552,7 @@ func (h *AccessHandler) handleSessionJoin(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "not_found", "session not found")
 		return
 	}
+	setAccessMetricsCluster(w, session.TargetCluster)
 
 	if session.Operator != username {
 		writeError(w, http.StatusForbidden, "forbidden", "only the session owner can join")
@@ -611,6 +644,7 @@ func (h *AccessHandler) handleSessionExecAttached(w http.ResponseWriter, r *http
 		writeError(w, http.StatusNotFound, "not_found", "session not found")
 		return
 	}
+	setAccessMetricsCluster(w, session.TargetCluster)
 	if session.Operator != username {
 		writeError(w, http.StatusForbidden, "forbidden", "only the session owner can attach exec sessions")
 		return
@@ -642,6 +676,7 @@ func (h *AccessHandler) handleSessionExecAttached(w http.ResponseWriter, r *http
 }
 
 func (h *AccessHandler) handleTargetList(w http.ResponseWriter, r *http.Request) {
+	setAccessMetricsDeployment(w, h)
 	ctx := r.Context()
 
 	targets, err := h.targetStore.List(ctx)
