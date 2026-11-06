@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
+
+	"github.com/openshift-online/rosa-seaplane-zoa/test/sessionplane"
 )
 
 const sessionManagerPluginDir = "/usr/local/sessionmanagerplugin/bin"
@@ -45,29 +47,16 @@ func e2ePathWithSessionManagerPlugin() string {
 
 // zoaDeploymentName returns ZOA_DEPLOYMENT_NAME (required for every e2e run).
 func zoaDeploymentName() string {
-	return strings.TrimSpace(os.Getenv("ZOA_DEPLOYMENT_NAME"))
+	return sessionplane.ZoaDeploymentName()
 }
 
-const sessionE2ESkipMessage = "Session e2e skipped: ZOA_DEPLOYMENT_NAME must contain eph until int/stage CI has central credentials (temporary gate)"
-
-// sessionE2EEnabled gates session-plane e2e (central profile: deployments, targets, session, exec-script).
-//
-// TEMPORARY: return true only when ZOA_DEPLOYMENT_NAME contains "eph". Ephemeral CI already
-// ships Vault aws_config with rrp-central and Terraform central invoker trust for the build;
-// integration/stage standing jobs do not yet assume that central credential path from CI
-// (GSM/Vault aws_config + operator profile parity). Names
-// like us-east-1 still export ZOA_DEPLOYMENT_NAME for suite wiring but skip session specs until
-// we can run the same smoke on nightly-integration/stage without the substring gate.
-//
-// Remove the strings.Contains(..., "eph") check once standing-env e2e mounts central creds.
 func sessionE2EEnabled() bool {
-	name := zoaDeploymentName()
-	return name != "" && strings.Contains(strings.ToLower(name), "eph")
+	return sessionplane.SessionE2EEnabled()
 }
 
 func skipUnlessSessionE2E() {
 	if !sessionE2EEnabled() {
-		ginkgo.Skip(sessionE2ESkipMessage)
+		ginkgo.Skip(sessionplane.SessionE2ESkipMessage)
 	}
 }
 

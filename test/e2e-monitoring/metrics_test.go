@@ -7,7 +7,15 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/openshift-online/rosa-seaplane-zoa/test/sessionplane"
 )
+
+func skipUnlessSessionPlaneE2E() {
+	if !sessionplane.SessionE2EEnabled() {
+		Skip(sessionplane.SessionE2ESkipMessage)
+	}
+}
 
 var _ = Describe("ZOA Metrics", func() {
 
@@ -73,6 +81,7 @@ var _ = Describe("ZOA Metrics", func() {
 		})
 
 		It("should have ECS boundary TaskCount metrics from Container Insights", Label("smoke"), func() {
+			skipUnlessSessionPlaneE2E()
 			query := `count(aws_ecs_containerinsights_task_count_maximum{dimension_ClusterName=~".*-zoa-boundary"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -118,6 +127,7 @@ var _ = Describe("ZOA Metrics", func() {
 		})
 
 		It("should have Access HTTP request metrics after session smoke", Label("smoke"), func() {
+			skipUnlessSessionPlaneE2E()
 			query := `count(aws_zoa_http_request_count_sum{dimension_HandlerMode="access"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -128,6 +138,7 @@ var _ = Describe("ZOA Metrics", func() {
 
 		// Full functional only: boundary exec-script runs zoa run inside the task (Outcome=hit).
 		It("should have identity bridge lookup metrics", Label("full"), func() {
+			skipUnlessSessionPlaneE2E()
 			query := `count(aws_zoa_identity_bridge_lookup_sum{dimension_Outcome=~"hit|miss|error"}) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -186,6 +197,7 @@ var _ = Describe("ZOA Metrics", func() {
 	Context("boundary observability recording rules", func() {
 
 		It("should have zoa:access_availability after Access HTTP traffic", Label("smoke"), func() {
+			skipUnlessSessionPlaneE2E()
 			query := `count(zoa:access_availability) > 0`
 			Eventually(func() bool {
 				resp := thanosQuery(client, query)
@@ -274,9 +286,11 @@ var _ = Describe("ZOA Metrics", func() {
 		for _, rule := range ruleNamesFull {
 			rule := rule
 			It("should have "+rule+" on every regional cluster", Label("full"), func() {
+				skipUnlessSessionPlaneE2E()
 				assertRuleOnAllClusters(rule, regionalClusters, "regional")
 			})
 			It("should have "+rule+" on every management cluster", Label("full"), func() {
+				skipUnlessSessionPlaneE2E()
 				assertRuleOnAllClusters(rule, managementClusters, "management")
 			})
 		}

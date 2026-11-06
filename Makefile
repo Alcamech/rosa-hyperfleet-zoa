@@ -162,6 +162,8 @@ test-e2e: build $(GINKGO)
 # Includes core TA checks and Access laptop session specs (deployments, targets, session lifecycle when eph).
 # Boundary exec-script e2e is full-only (make test-e2e / test-e2e-zoa, no smoke label).
 # Monitoring smoke excludes Label("full") specs (identity bridge metrics need boundary exec-script).
+# Session-dependent smoke metrics (Access HTTP, boundary ECS, zoa:access_availability) also skip
+# when ZOA_DEPLOYMENT_NAME does not contain "eph" — same gate as session-plane CLI e2e.
 test-e2e-smoke: build $(GINKGO)
 	$(call run_e2e_parallel,--timeout=8m --label-filter=smoke)
 	@echo ""; echo "=== ZOA Monitoring E2E (smoke) ==="
