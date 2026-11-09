@@ -57,9 +57,9 @@ against `kube-system/coredns`, cooldown enforcement, all CLI commands (`get`, `r
 
 ### Monitoring Suite Details
 
-**Smoke** (`make test-e2e-smoke`, functional and monitoring both use `--label-filter=smoke`): recording rules loaded in Thanos Ruler, alerting rules loaded, infrastructure metrics present, execution metrics from smoke TAs and Access session lifecycle, recording rule **values** that do not require boundary exec-script. Identity bridge metric/value checks are **`Label("full")` only** (boundary `session start --exec-script` + in-task `zoa run`).
+**Smoke** (`make test-e2e-smoke`, functional and monitoring both use `--label-filter=smoke`): recording rules loaded in Thanos Ruler, alerting rules loaded, infrastructure metrics present, execution metrics from smoke TAs and Access session lifecycle, recording rule **values** that do not require boundary exec-script. **`Label("full")` only:** identity bridge metric/value checks (boundary `session start --exec-script` + in-task `zoa run`) and **ECS Container Insights `TaskCount`** for `*-zoa-boundary` (smoke `session start --no-connect` + immediate terminate leaves tasks too short-lived for CloudWatch CI to emit).
 
-**Full** (`make test-e2e`, monitoring runs without label filter): all smoke monitoring specs plus identity bridge raw metrics and `zoa:identity_bridge_hit_rate` recording rule values, and no critical alerts in `firing` state when those tests exist.
+**Full** (`make test-e2e`, monitoring runs without label filter): all smoke monitoring specs plus identity bridge raw metrics, `zoa:identity_bridge_hit_rate` recording rule values, boundary Container Insights TaskCount, and no critical alerts in `firing` state when those tests exist.
 
 See [docs/observability.md](observability.md) for the metrics catalog and alerting philosophy.
 
