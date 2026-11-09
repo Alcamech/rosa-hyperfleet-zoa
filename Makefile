@@ -161,7 +161,7 @@ test-e2e: build $(GINKGO)
 # test-e2e-smoke runs only specs with Label("smoke") — fast path for rosa-seaplane/-api presubmits.
 # Includes core TA checks and Access laptop session specs (deployments, targets, session lifecycle when eph).
 # Boundary exec-script e2e is full-only (make test-e2e / test-e2e-zoa, no smoke label).
-# Monitoring smoke excludes Label("full") specs (identity bridge metrics need boundary exec-script).
+# Monitoring smoke excludes Label("full") specs (identity bridge + boundary CI TaskCount need exec-script / RUNNING tasks).
 # Session-dependent smoke metrics (Access HTTP, boundary ECS, zoa:access_availability) also skip
 # when ZOA_DEPLOYMENT_NAME does not contain "eph" — same gate as session-plane CLI e2e.
 test-e2e-smoke: build $(GINKGO)

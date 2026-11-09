@@ -80,7 +80,10 @@ var _ = Describe("ZOA Metrics", func() {
 				"Expected aws_zoa_reconciler_last_run_maximum (EMF ReconcilerLastRun)")
 		})
 
-		It("should have ECS boundary TaskCount metrics from Container Insights", Label("smoke"), func() {
+		// Full only: smoke session lifecycle terminates boundary tasks ~1–2s after RunTask
+		// (often while still PROVISIONING), so CloudWatch Container Insights TaskCount may
+		// never publish; full exec-script e2e keeps tasks RUNNING long enough for CI metrics.
+		It("should have ECS boundary TaskCount metrics from Container Insights", Label("full"), func() {
 			skipUnlessSessionPlaneE2E()
 			query := `count(aws_ecs_containerinsights_task_count_maximum{dimension_ClusterName=~".*-zoa-boundary"}) > 0`
 			Eventually(func() bool {
