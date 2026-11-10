@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1793736700 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1794208260 AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 USER 0
@@ -22,7 +22,7 @@ RUN git config --global --add safe.directory /workspace && \
     -ldflags="-w -s -X ${VERSION_PKG}.Version=${ZOA_VERSION} -X ${VERSION_PKG}.GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}" \
     -o /workspace/zoa-lambda ./cmd/zoa-lambda/
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793578971
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1794186349
 
 ARG VERSION=0.0.1
 ARG RELEASE=1
