@@ -13,7 +13,10 @@
 #     $ARTIFACT_DIR (TEST_OUTPUT_DIR honors ARTIFACT_DIR)
 #   - must be isolated: no reliance on other suites, no ordering assumptions
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+# Resolve the repository root via git (robust to any cwd/layout; the script
+# is 3 directories deep, so relative traversal is error-prone).
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
 [[ -f Makefile ]] || { echo "ERROR: cannot find Makefile at $(pwd)" >&2; exit 1; }
 
 # Suite-level knobs: sane defaults, overridable via environment.
