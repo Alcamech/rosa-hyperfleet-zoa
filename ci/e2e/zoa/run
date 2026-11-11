@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# E2E suite entry point: `zoa`
+#
+# Standard contract for the rosa-hyperfleet parallel e2e runner:
+#   - cwd may be anywhere; we resolve the repo root ourselves
+#   - inputs come from the environment (e2e.env / E2E_SUITE_ENV), e.g.:
+#       ZOA_RC_API_URL, ZOA_MC_API_URL (one or both; Makefile runs
+#       each configured target and skips missing ones)
+#       GINKGO_FLAGS (extra ginkgo flags, e.g. --label-filter=smoke)
+#       ZOA_E2E_TARGET (default test-e2e; use test-e2e-smoke for the
+#       cheap, read-only smoke subset)
+#   - exit 0 = pass, non-zero = fail; monitoring junit goes to
+#     $ARTIFACT_DIR (TEST_OUTPUT_DIR honors ARTIFACT_DIR)
+#   - must be isolated: no reliance on other suites, no ordering assumptions
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+[[ -f Makefile ]] || { echo "ERROR: cannot find Makefile at $(pwd)" >&2; exit 1; }
+
+# Suite-level knobs: sane defaults, overridable via environment.
+# Default is the full functional suite + monitoring, matching the current
+# nightly invocation (ci/e2e-tests.sh uses test-e2e for periodic jobs and
+# test-e2e-smoke otherwise; the runner decides scope via ZOA_E2E_TARGET).
+ZOA_E2E_TARGET="${ZOA_E2E_TARGET:-test-e2e}"
+
+# TODO(ROSAENG-75289): wire E2E_SUITE_TIMEOUT into ginkgo --timeout so a
+# suite timeout produces a clean junit report entry instead of a SIGTERM.
+
+exec make "${ZOA_E2E_TARGET}"
