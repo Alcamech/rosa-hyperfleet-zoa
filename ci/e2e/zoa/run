@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# E2E suite entry point: `zoa`
+#
+# Standard contract for the rosa-hyperfleet parallel e2e runner:
+#   - cwd may be anywhere; we resolve the repo root ourselves
+#   - inputs come from the environment (e2e.env / E2E_SUITE_ENV), e.g.:
+#       ZOA_RC_API_URL, ZOA_MC_API_URL (both required: ephemeral CI
+#       provisions both — RC in the regional account, MC in the
+#       management cluster)
+#       RHOBS_API_URL (monitoring suite endpoint)
+#       ZOA_DEPLOYMENT_NAME (Access / session-related specs)
+#       ZOA_CENTRAL_AWS_PROFILE (central profile the Access specs use)
+#       GINKGO_FLAGS (extra ginkgo flags, e.g. --label-filter=smoke)
+#       ZOA_E2E_TARGET (default test-e2e; use test-e2e-smoke for the
+#       cheap, read-only smoke subset)
+#   - exit 0 = pass, non-zero = fail; junit (monitoring + functional
+#     RC/MC) goes to $ARTIFACT_DIR (TEST_OUTPUT_DIR honors ARTIFACT_DIR)
+#   - must be isolated: no reliance on other suites, no ordering assumptions
+#
+# Requires: ZOA_RC_API_URL, ZOA_MC_API_URL, RHOBS_API_URL, ZOA_DEPLOYMENT_NAME
+set -euo pipefail
+# Resolve the repository root via git (robust to any cwd/layout; the script
+# is 3 directories deep, so relative traversal is error-prone).
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
+[[ -f Makefile ]] || { echo "ERROR: cannot find Makefile at $(pwd)" >&2; exit 1; }
+
+# Fail fast: both API URLs are required (ephemeral CI provisions both —
+# RC in the regional account, MC in the management cluster); a missing
+# URL would otherwise silently skip that target's specs and pass green.
+: "${ZOA_RC_API_URL:?ZOA_RC_API_URL is required}"
+: "${ZOA_MC_API_URL:?ZOA_MC_API_URL is required}"
+: "${RHOBS_API_URL:?RHOBS_API_URL is required}"
+# Access / session-related specs read the deployment name; fail with a
+# clear harness-misconfiguration error instead of a deeper ginkgo failure.
+: "${ZOA_DEPLOYMENT_NAME:?ZOA_DEPLOYMENT_NAME is required for Access specs}"
+
+# Suite-level knobs: sane defaults, overridable via environment.
+# Default is the full functional suite + monitoring, matching the current
+# nightly invocation (ci/e2e-tests.sh uses test-e2e for periodic jobs and
+# test-e2e-smoke otherwise; the runner decides scope via ZOA_E2E_TARGET).
+ZOA_E2E_TARGET="${ZOA_E2E_TARGET:-test-e2e}"
+
+# TODO(ROSAENG-75289): wire E2E_SUITE_TIMEOUT into ginkgo --timeout so a
+# suite timeout produces a clean junit report entry instead of a SIGTERM.
+
+# Functional RC/MC runs write per-target junit (junit-zoa-{rc,mc}.xml) via
+# the Makefile's run_e2e_parallel; only follow-up work remains if a target
+# needs additional reporting.
+
+exec make "${ZOA_E2E_TARGET}"

@@ -137,11 +137,12 @@ endef
 
 define run_e2e_parallel
 	@rc_exit=0; mc_exit=0; \
+	mkdir -p $(TEST_OUTPUT_DIR); \
 	if [ -n "$(ZOA_RC_API_URL)" ] && [ -n "$(ZOA_MC_API_URL)" ]; then \
 		set -o pipefail; \
 		echo "Running RC and MC in parallel..."; \
-		(ZOA_MC_API_URL= $(E2E_GINKGO_RUN) $(1) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[RC] /') & rc_pid=$$!; \
-		(ZOA_RC_API_URL= $(E2E_GINKGO_RUN) $(1) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[MC] /') & mc_pid=$$!; \
+		(ZOA_MC_API_URL= $(E2E_GINKGO_RUN) $(1) --junit-report=junit-zoa-rc.xml --output-dir=$(TEST_OUTPUT_DIR) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[RC] /') & rc_pid=$$!; \
+		(ZOA_RC_API_URL= $(E2E_GINKGO_RUN) $(1) --junit-report=junit-zoa-mc.xml --output-dir=$(TEST_OUTPUT_DIR) $(E2E_GINKGO_PKG) 2>&1 | sed 's/^/[MC] /') & mc_pid=$$!; \
 		wait $$rc_pid || rc_exit=$$?; \
 		wait $$mc_pid || mc_exit=$$?; \
 		if [ $$rc_exit -ne 0 ] || [ $$mc_exit -ne 0 ]; then \
