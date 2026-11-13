@@ -8,10 +8,10 @@
 # are checksum-verified.
 
 # Use versioned multi-arch tags, not per-architecture manifest digests.
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.9-1793829856
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.9-1794467051
 
 # Use the same versioned multi-arch go-toolset tag as the other ZOA images.
-ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.27.3-1793884566
+ARG BUILDER_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.27.3-1794518352
 
 # --------------------------------------------------------------------------
 # builder — Go build (zoa CLI)
@@ -78,7 +78,7 @@ ARG TARGETARCH=amd64
 # aws/aws-cli publishes stable versions as git tags, not GitHub Releases.
 # MintMaker matches this ARG via renovate.json (github-tags, x.y.z only).
 # renovate: datasource=github-tags depName=aws/aws-cli
-ARG AWS_CLI_VERSION="2.39.6"
+ARG AWS_CLI_VERSION="2.39.7"
 
 RUN microdnf install --assumeyes --nodocs unzip && microdnf clean all
 
@@ -108,7 +108,7 @@ FROM ${BASE_IMAGE} AS claude-builder
 
 ARG TARGETARCH=amd64
 # renovate: datasource=github-releases depName=anthropics/claude-code
-ARG CLAUDE_CODE_VERSION="2.1.319"
+ARG CLAUDE_CODE_VERSION="2.1.322"
 ENV CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}"
 
 RUN microdnf install --assumeyes --nodocs tar gzip && microdnf clean all
